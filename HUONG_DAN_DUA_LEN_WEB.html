@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hướng dẫn đưa Soát Văn Bản AI v0.8 lên Vercel</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;max-width:920px;margin:40px auto;padding:0 20px;line-height:1.65;color:#172033}
+h1{color:#1d4ed8}h2{margin-top:30px}code,pre{background:#f3f4f6;border-radius:8px}code{padding:2px 5px}
+pre{padding:16px;overflow:auto}.box,.ok,.warn{padding:15px 18px;border-radius:12px}.box{border:1px solid #bfdbfe;background:#eff6ff}
+.ok{border:1px solid #bbf7d0;background:#f0fdf4}.warn{border:1px solid #fde68a;background:#fffbeb}li{margin:8px 0}
+</style>
+</head>
+<body>
+<h1>Đưa Soát Văn Bản AI v0.8 lên Vercel</h1>
+<div class="box"><b>Điểm khác v0.7:</b> v0.8 cần Redis bền vững để quản lý quota 30 văn bản/ngày và thống kê ngày/tháng/năm/tổng.</div>
+
+<h2>1. Đưa mã nguồn v0.8 lên repository</h2>
+<p>Upload toàn bộ thư mục v0.8. Các file mới quan trọng gồm:</p>
+<pre>app/api/usage/route.ts
+lib/usage.ts
+CAP_NHAT_V0_8.html</pre>
+<p>Các file đã thay đổi gồm <code>app/page.tsx</code>, <code>app/globals.css</code>, <code>app/api/review/route.ts</code>, <code>lib/ai.ts</code>, <code>lib/docx-client.ts</code>, <code>lib/types.ts</code>, <code>package.json</code>, <code>.env.example</code> và <code>README.md</code>.</p>
+
+<h2>2. Cài dependency</h2>
+<pre>npm install
+npm run typecheck
+npm run build</pre>
+<div class="warn">Sau khi <code>npm install</code> thành công, nên commit file <code>package-lock.json</code> được tạo ra để deployment có dependency reproducible.</div>
+
+<h2>3. Tạo Redis</h2>
+<ol>
+<li>Tạo Redis database trên Upstash hoặc dùng Upstash integration trong Vercel.</li>
+<li>Lấy REST URL và REST token.</li>
+<li>Đặt hai biến môi trường <code>UPSTASH_REDIS_REST_URL</code> và <code>UPSTASH_REDIS_REST_TOKEN</code>.</li>
+</ol>
+<p>Nếu integration cung cấp <code>KV_REST_API_URL</code> và <code>KV_REST_API_TOKEN</code>, v0.8 cũng tự nhận hai tên này.</p>
+
+<h2>4. Environment Variables cần thiết</h2>
+<pre>OPENAI_API_KEY=...
+OPENAI_BASE_URL=https://api.shopaikey.com/v1
+APP_ACCESS_CODE=...
+
+UPSTASH_REDIS_REST_URL=...
+UPSTASH_REDIS_REST_TOKEN=...
+
+DAILY_DOCUMENT_LIMIT=30
+USAGE_TIME_ZONE=Asia/Bangkok
+USAGE_KEY_PREFIX=soat-van-ban-ai:v0.8
+REVIEW_RESERVATION_TTL_SECONDS=10800
+REVIEW_REQUESTS_PER_MINUTE=120
+
+OPENAI_LOCAL_MODEL=gpt-5.4-mini-2026-03-17
+OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.1-2025-11-13
+OPENAI_DEEP_MODEL=gpt-5.6-sol
+OPENAI_DEEP_FALLBACK_MODEL=gpt-5.1-2025-11-13
+NEXT_PUBLIC_AI_CONCURRENCY=4
+AI_LOCAL_FIRST_BYTE_TIMEOUT_MS=80000
+AI_DEEP_FIRST_BYTE_TIMEOUT_MS=115000
+AI_STREAM_IDLE_TIMEOUT_MS=45000
+AI_LOCAL_MAX_TOKENS=2600
+AI_DEEP_MAX_TOKENS=3200</pre>
+
+<div class="warn"><b>APP_ACCESS_CODE là bắt buộc ở v0.8.</b> Nếu thiếu, API từ chối hoạt động thay vì bỏ qua xác thực.</div>
+
+<h2>5. Redeploy</h2>
+<ol>
+<li>Commit/push source.</li>
+<li>Vào Vercel → Project → Settings → Environment Variables và nhập đủ biến trên.</li>
+<li>Redeploy.</li>
+<li>Mở trang chủ và xác nhận góc phải hiển thị <b>Review Workspace · v0.8</b>.</li>
+<li>Kiểm tra dashboard có số lượt còn lại, thống kê và đồng hồ đếm ngược.</li>
+</ol>
+
+<h2>6. Test quota</h2>
+<ol>
+<li>Đặt tạm <code>DAILY_DOCUMENT_LIMIT=2</code> trên một môi trường test.</li>
+<li>Rà soát hoàn tất hai file.</li>
+<li>Xác nhận lượt còn lại về 0 và nút chọn/bắt đầu review bị khóa.</li>
+<li>Đổi lại <code>DAILY_DOCUMENT_LIMIT=30</code> và redeploy.</li>
+</ol>
+
+<h2>7. Test chỉnh cảnh báo</h2>
+<p>Chọn một mục <b>Cảnh báo nội dung</b>. Dù AI không có replacement, ô nhập vẫn xuất hiện. Nhập nội dung thay thế, bấm <b>Chấp nhận nội dung đã chỉnh</b>, rồi tải Word và kiểm tra.</p>
+
+<h2>8. Test xuất Word</h2>
+<p>Sau khi tải, v0.8 sẽ báo số thay đổi áp dụng thành công/thất bại và số thay đổi đi qua nhiều Word run cần kiểm tra định dạng.</p>
+
+<div class="ok"><b>Khuyến nghị:</b> test trên Preview Deployment trước khi đưa lên Production, đặc biệt với file có header/footer, footnote và định dạng chữ đậm/nghiêng xen kẽ.</div>
+</body>
+</html>
