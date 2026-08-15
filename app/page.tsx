@@ -1082,7 +1082,7 @@ export default function Home() {
                   <tr><th>STT</th><th>Nội dung lỗi</th><th>Đề xuất</th><th>Trạng thái</th></tr>
                 </thead>
                 <tbody>
-                  {doc.issues.map((issue: any, index: number) => (
+                  {doc?.issues?.map((issue: any, index: number) => (
                     <tr key={issue.id || index}>
                       <td>{index + 1}</td>
                       <td>{issue.originalText || issue.original || ""}</td>
