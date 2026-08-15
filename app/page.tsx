@@ -807,7 +807,29 @@ export default function Home() {
             <h1>Rà soát file Word bằng AI</h1>
             <p>Rà soát song song để nhanh hơn, sau đó dùng model mạnh kiểm tra tính nhất quán toàn văn.</p>
           </section>
-
+<section className="card upload">
+            {busy ? (
+              <><div className="spinner" /><b>Đang đọc file Word ngay trên trình duyệt...</b></>
+            ) : (
+              <>
+                <h2>{quotaExhausted ? "Đã hết lượt rà soát hôm nay" : "Chọn file .docx"}</h2>
+                <p className="muted">Tối đa {MAX_FILE_MB} MB và {MAX_CHARACTERS.toLocaleString("vi-VN")} ký tự.</p>
+                <p className="privacyNote">
+                  File Word gốc được đọc và tạo lại ngay trên trình duyệt, không lưu trên máy chủ website.
+                  Tuy nhiên, <b>nội dung văn bản cần rà soát sẽ được gửi tới máy chủ và nhà cung cấp AI</b> để xử lý.
+                </p>
+                <label className={`primary ${quotaExhausted || usageLoading || Boolean(usageError && !usageStats) ? "disabledLabel" : ""}`}>
+                  {quotaExhausted ? "Hết hạn mức hôm nay" : usageLoading ? "Đang kiểm tra hạn mức..." : "Chọn file Word"}
+                  <input
+                    type="file"
+                    accept=".docx"
+                    disabled={quotaExhausted || usageLoading || Boolean(usageError && !usageStats)}
+                    onChange={(e) => e.target.files?.[0] && chooseFile(e.target.files[0])}
+                  />
+                </label>
+              </>
+            )}
+          </section>
           <section className="usageDashboard">
             <div className={`card quotaCard ${quotaExhausted ? "quotaExhausted" : ""}`}>
               <div>
@@ -854,30 +876,6 @@ export default function Home() {
                   <small>văn bản đã rà soát</small>
                 </div>
               </div>
-            )}
-          </section>
-
-          <section className="card upload">
-            {busy ? (
-              <><div className="spinner" /><b>Đang đọc file Word ngay trên trình duyệt...</b></>
-            ) : (
-              <>
-                <h2>{quotaExhausted ? "Đã hết lượt rà soát hôm nay" : "Chọn file .docx"}</h2>
-                <p className="muted">Tối đa {MAX_FILE_MB} MB và {MAX_CHARACTERS.toLocaleString("vi-VN")} ký tự.</p>
-                <p className="privacyNote">
-                  File Word gốc được đọc và tạo lại ngay trên trình duyệt, không lưu trên máy chủ website.
-                  Tuy nhiên, <b>nội dung văn bản cần rà soát sẽ được gửi tới máy chủ và nhà cung cấp AI</b> để xử lý.
-                </p>
-                <label className={`primary ${quotaExhausted || usageLoading || Boolean(usageError && !usageStats) ? "disabledLabel" : ""}`}>
-                  {quotaExhausted ? "Hết hạn mức hôm nay" : usageLoading ? "Đang kiểm tra hạn mức..." : "Chọn file Word"}
-                  <input
-                    type="file"
-                    accept=".docx"
-                    disabled={quotaExhausted || usageLoading || Boolean(usageError && !usageStats)}
-                    onChange={(e) => e.target.files?.[0] && chooseFile(e.target.files[0])}
-                  />
-                </label>
-              </>
             )}
           </section>
         </>
