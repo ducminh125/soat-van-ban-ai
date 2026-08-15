@@ -795,7 +795,7 @@ export default function Home() {
   return (
     <main className="shell">
       <header className="topbar">
-        <div className="brand">Soát Văn Bản AI</div>
+        <div className="brand">Rà soát chính tả, diễn đạt của văn bản bằng Ai</div>
         <div className="badge">Review Workspace · v0.8</div>
       </header>
 
@@ -922,8 +922,8 @@ export default function Home() {
           </div>
 
           <div className="field" style={{ marginTop: 18 }}>
-            <label>Mã truy cập website</label>
-            <input className="textInput" type="password" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="Nhập mã bạn đã đặt trên Vercel" disabled={busy} />
+            <label>Mật khẩu</label>
+            <input className="textInput" type="password" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="Nhập mật khẩu" disabled={busy} />
           </div>
 
           <div style={{ marginTop: 22 }} className="row">
