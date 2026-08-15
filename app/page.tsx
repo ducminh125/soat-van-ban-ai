@@ -718,8 +718,6 @@ export default function Home() {
       "Nội dung gốc": issue.originalQuote || "",
       "Đề xuất chỉnh sửa AI": issue.replacement || issue.aiReplacement || "",
       "Giải thích lỗi": issue.explanation || "",
-      "Ngữ cảnh trước": issue.contextBefore || "",
-      "Ngữ cảnh sau": issue.contextAfter || "",
       "Loại lỗi": labels[issue.category] || issue.category || "",
       "Mức độ": issue.severity || "",
       "Độ tin cậy AI": issue.confidence ? `${Math.round(issue.confidence * 100)}%` : "",
@@ -728,9 +726,8 @@ export default function Home() {
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
     worksheet["!cols"] = [
-      { wch: 8 }, { wch: 22 }, { wch: 55 }, { wch: 55 },
-      { wch: 45 }, { wch: 45 }, { wch: 45 },
-      { wch: 22 }, { wch: 14 }, { wch: 16 }, { wch: 18 }
+      { wch: 8 }, { wch: 22 }, { wch: 65 }, { wch: 65 },
+      { wch: 50 }, { wch: 22 }, { wch: 14 }, { wch: 16 }, { wch: 18 }
     ];
 
     const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1:A1");
@@ -739,7 +736,7 @@ export default function Home() {
         const cell = worksheet[XLSX.utils.encode_cell({ r, c })];
         if (cell) {
           cell.s = {
-            font: { name: "Arial", sz: 11 },
+            font: { name: "Times New Roman", sz: 11 },
             alignment: { wrapText: true, vertical: "top", horizontal: "left" }
           };
         }
@@ -749,7 +746,7 @@ export default function Home() {
       const cell = worksheet[XLSX.utils.encode_cell({ r: 0, c })];
       if (cell) {
         cell.s = {
-          font: { name: "Arial", sz: 11, bold: true },
+          font: { name: "Times New Roman", sz: 11, bold: true },
           alignment: { wrapText: true, vertical: "center", horizontal: "center" }
         };
       }

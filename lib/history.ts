@@ -1,8 +1,5 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+import { createClient } from "@supabase/supabase-js";
 import type { ReviewIssue, StoredDocument } from "./types";
-
-const FILE = path.join(process.cwd(), "data", "review-history.json");
 
 export type ReviewHistoryItem = {
   id: string;
@@ -14,15 +11,16 @@ export type ReviewHistoryItem = {
   issues: ReviewIssue[];
 };
 
-async function readAll(): Promise<ReviewHistoryItem[]> {
-  try { return JSON.parse(await fs.readFile(FILE, "utf8")); }
-  catch { return []; }
+function getSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { persistSession: false } });
 }
 
 export async function saveHistory(doc: StoredDocument) {
-  const items = await readAll();
   const resolved = doc.issues.filter(i => ["accepted", "edited", "ignored"].includes(i.status)).length;
-  items.unshift({
+  const item: ReviewHistoryItem = {
     id: doc.id,
     filename: doc.filename,
     createdAt: new Date().toISOString(),
@@ -30,9 +28,44 @@ export async function saveHistory(doc: StoredDocument) {
     resolvedIssues: resolved,
     pendingIssues: doc.issues.length - resolved,
     issues: doc.issues
+  };
+
+  const supabase = getSupabase();
+  if (!supabase) {
+    console.warn("SUPABASE chưa cấu hình, lịch sử chưa được lưu vĩnh viễn");
+    return;
+  }
+
+  await supabase.from("review_history").upsert({
+    id: item.id,
+    filename: item.filename,
+    created_at: item.createdAt,
+    total_issues: item.totalIssues,
+    resolved_issues: item.resolvedIssues,
+    pending_issues: item.pendingIssues,
+    issues: item.issues
   });
-  await fs.mkdir(path.dirname(FILE), { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(items.slice(0,100), null, 2), "utf8");
 }
 
-export async function getHistory() { return readAll(); }
+export async function getHistory(): Promise<ReviewHistoryItem[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("review_history")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error || !data) return [];
+
+  return data.map((x: any) => ({
+    id: x.id,
+    filename: x.filename,
+    createdAt: x.created_at,
+    totalIssues: x.total_issues,
+    resolvedIssues: x.resolved_issues,
+    pendingIssues: x.pending_issues,
+    issues: x.issues || []
+  }));
+}
