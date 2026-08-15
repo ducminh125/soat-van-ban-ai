@@ -1,5 +1,7 @@
 "use client";
 
+import * as XLSX from "xlsx";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { applyAcceptedIssues, extractBlocks } from "@/lib/docx-client";
 import type { DocumentBlock, ReviewFact, ReviewIssue, StoredDocument } from "@/lib/types";
@@ -708,27 +710,28 @@ export default function Home() {
 
   function exportIssueSummary() {
     if (!doc) return;
-    const rows = [
-      ["STT", "Nội dung lỗi", "Đề xuất AI", "Loại lỗi", "Trạng thái"],
-      ...doc.issues.map((issue: any, index: number) => [
-        String(index + 1),
-        issue.originalText || issue.original || "",
-        issue.replacement || issue.suggestion || "",
-        labels[issue.category] || issue.category || "",
-        issue.status === "accepted" ? "Đã xử lý" : issue.status === "ignored" ? "Đã bỏ qua" : "Chưa xử lý"
-      ])
+
+    const rows = doc.issues.map((issue: any, index: number) => ({
+      "STT": index + 1,
+      "Nội dung gốc": issue.originalText || issue.original || "",
+      "Đề xuất chỉnh sửa AI": issue.replacement || issue.suggestion || issue.aiReplacement || "",
+      "Giải thích lỗi": issue.explanation || issue.reason || "",
+      "Loại lỗi": labels[issue.category] || issue.category || "",
+      "Độ tin cậy AI": issue.confidence ?? "",
+      "Trạng thái": issue.status === "accepted" ? "Đã xử lý" : issue.status === "ignored" ? "Đã bỏ qua" : issue.status === "edited" ? "Đã chỉnh sửa" : "Chưa xử lý"
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet["!cols"] = [
+      { wch: 8 }, { wch: 45 }, { wch: 45 }, { wch: 55 },
+      { wch: 18 }, { wch: 15 }, { wch: 18 }
     ];
-    const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Tong hop loi AI");
+
     const base = doc.filename.replace(/\.docx$/i, "");
-    anchor.href = url;
-    anchor.download = `${base}-tong-hop-loi-ai.csv`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    XLSX.writeFile(workbook, `${base}-tong-hop-loi-ai.xlsx`);
   }
 
   async function exportFile() {
@@ -1072,28 +1075,6 @@ export default function Home() {
               ? <>Rà soát đã hoàn tất{lastReviewSeconds !== null ? <> trong <b>{formatDuration(lastReviewSeconds)}</b></> : null}. Hãy duyệt các đề xuất bên dưới trước khi tải Word.</>
               : "Bạn đã dừng hoặc quá trình chưa hoàn tất. File xuất chỉ phản ánh những đề xuất đã nhận được trước khi dừng."}
           </div>
-
-          {false && showIssueSummary && (
-            <section className="card">
-              <h2>Các lỗi AI đề xuất</h2>
-              <p className="muted">Danh sách lỗi đang có trong kết quả rà soát. Có thể dùng để kiểm tra trước khi sửa và tải file Word.</p>
-              <table>
-                <thead>
-                  <tr><th>STT</th><th>Nội dung lỗi</th><th>Đề xuất</th><th>Trạng thái</th></tr>
-                </thead>
-                <tbody>
-                  {doc?.issues?.map((issue: any, index: number) => (
-                    <tr key={issue.id || index}>
-                      <td>{index + 1}</td>
-                      <td>{issue.originalText || issue.original || ""}</td>
-                      <td>{issue.replacement || issue.suggestion || ""}</td>
-                      <td>{issue.status === "accepted" ? "Đã xử lý" : issue.status === "ignored" ? "Đã bỏ qua" : "Chưa xử lý"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
 
           {exportReport && (
             <div className={exportReport.skipped > 0 ? "exportNotice exportNoticeWarn" : "exportNotice exportNoticeOk"}>
