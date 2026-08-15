@@ -304,6 +304,7 @@ export default function Home() {
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [exportReport, setExportReport] = useState<ExportReport | null>(null);
   const [history, setHistory] = useState<any[]>([]);
+  const [showIssueSummary, setShowIssueSummary] = useState(false);
 
   const cancelRequestedRef = useRef(false);
   const activeControllersRef = useRef<Set<AbortController>>(new Set());
@@ -704,6 +705,32 @@ export default function Home() {
     await fetch("/api/history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc) }).catch(() => null);
   }
 
+
+  function exportIssueSummary() {
+    if (!doc) return;
+    const rows = [
+      ["STT", "Nội dung lỗi", "Đề xuất AI", "Loại lỗi", "Trạng thái"],
+      ...doc.issues.map((issue: any, index: number) => [
+        String(index + 1),
+        issue.originalText || issue.original || "",
+        issue.replacement || issue.suggestion || "",
+        labels[issue.category] || issue.category || "",
+        issue.status === "accepted" ? "Đã xử lý" : issue.status === "ignored" ? "Đã bỏ qua" : "Chưa xử lý"
+      ])
+    ];
+    const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const base = doc.filename.replace(/\.docx$/i, "");
+    anchor.href = url;
+    anchor.download = `${base}-tong-hop-loi-ai.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
   async function exportFile() {
     if (!doc || !originalFile) return;
     setBusy(true);
@@ -815,26 +842,6 @@ export default function Home() {
         <div className="badge">Mai Đức Minh's website</div>
       </header>
 
-      <section className="card">
-        <h2>Lịch sử rà soát văn bản</h2>
-        <p className="muted">Các phiên rà soát đã lưu trên hệ thống này.</p>
-        {history.length === 0 ? <p>Chưa có lịch sử rà soát.</p> : (
-          <table>
-            <tbody>
-              {history.map((h) => (
-                <tr key={h.id}>
-                  <td>{h.filename}</td>
-                  <td>{h.totalIssues} lỗi</td>
-                  <td>Đã xử lý: {h.resolvedIssues}</td>
-                  <td>Chưa xử lý: {h.pendingIssues}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <button className="secondary" onClick={() => window.open("/api/history/export", "_blank")}>Xuất bảng tổng hợp lỗi</button>
-      </section>
-
       {error && <div className="error">{error}</div>}
 
       {step === "upload" && (
@@ -915,6 +922,27 @@ export default function Home() {
             )}
           </section>
         </>
+      )}
+
+      {step === "upload" && (
+        <section className="card">
+          <h2>Lịch sử rà soát văn bản</h2>
+          <p className="muted">Các phiên rà soát đã lưu trên hệ thống này.</p>
+          {history.length === 0 ? <p>Chưa có lịch sử rà soát.</p> : (
+            <table>
+              <tbody>
+                {history.map((h) => (
+                  <tr key={h.id}>
+                    <td>{h.filename}</td>
+                    <td>{h.totalIssues} lỗi</td>
+                    <td>Đã xử lý: {h.resolvedIssues}</td>
+                    <td>Chưa xử lý: {h.pendingIssues}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
       )}
 
       {step === "settings" && doc && (
@@ -1035,6 +1063,7 @@ export default function Home() {
               <button className="secondary" onClick={() => window.location.reload()}>File khác</button>
               <button className="secondary" onClick={acceptSafe} title="Chỉ tự chọn lỗi chính tả/dấu câu có confidence AI từ 98%; vẫn nên kiểm tra trước khi tải.">Tự chọn lỗi ≥98%</button>
               <button className="primary" onClick={exportFile} disabled={busy}>Tải Word đã sửa</button>
+              <button className="secondary" onClick={exportIssueSummary}>Xuất bảng tổng hợp lỗi</button>
             </div>
           </div>
 
@@ -1043,6 +1072,28 @@ export default function Home() {
               ? <>Rà soát đã hoàn tất{lastReviewSeconds !== null ? <> trong <b>{formatDuration(lastReviewSeconds)}</b></> : null}. Hãy duyệt các đề xuất bên dưới trước khi tải Word.</>
               : "Bạn đã dừng hoặc quá trình chưa hoàn tất. File xuất chỉ phản ánh những đề xuất đã nhận được trước khi dừng."}
           </div>
+
+          {false && showIssueSummary && (
+            <section className="card">
+              <h2>Các lỗi AI đề xuất</h2>
+              <p className="muted">Danh sách lỗi đang có trong kết quả rà soát. Có thể dùng để kiểm tra trước khi sửa và tải file Word.</p>
+              <table>
+                <thead>
+                  <tr><th>STT</th><th>Nội dung lỗi</th><th>Đề xuất</th><th>Trạng thái</th></tr>
+                </thead>
+                <tbody>
+                  {doc.issues.map((issue: any, index: number) => (
+                    <tr key={issue.id || index}>
+                      <td>{index + 1}</td>
+                      <td>{issue.originalText || issue.original || ""}</td>
+                      <td>{issue.replacement || issue.suggestion || ""}</td>
+                      <td>{issue.status === "accepted" ? "Đã xử lý" : issue.status === "ignored" ? "Đã bỏ qua" : "Chưa xử lý"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
 
           {exportReport && (
             <div className={exportReport.skipped > 0 ? "exportNotice exportNoticeWarn" : "exportNotice exportNoticeOk"}>

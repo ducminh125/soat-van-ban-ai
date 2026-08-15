@@ -1,12 +1,12 @@
-# Hướng dẫn cập nhật GitHub phiên bản v0.9 (dành cho người không chuyên)
+# Hướng dẫn cập nhật GitHub phiên bản v0.9.2 (dành cho người không chuyên)
 
 ## 1. Sao lưu phiên bản cũ
 - Vào thư mục dự án hiện tại.
 - Sao chép cả thư mục ra một nơi khác để dự phòng.
 
 ## 2. Cập nhật mã nguồn
-- Giải nén file v0.9.
-- Sao chép toàn bộ file trong thư mục v0.9 vào thư mục dự án GitHub cũ.
+- Giải nén file v0.9.2.
+- Sao chép toàn bộ file trong thư mục v0.9.2 vào thư mục dự án GitHub cũ.
 - Không xóa các file cấu hình riêng như `.env.local` nếu đang sử dụng API key.
 
 ## 3. Kiểm tra trước khi đưa lên GitHub
@@ -26,7 +26,7 @@ Nếu website chạy bình thường thì tiếp tục.
 4. Kiểm tra danh sách file thay đổi.
 5. Nhập nội dung ghi chú:
 
-`Nang cap v0.9 - Luu lich su ra soat va xuat bao cao loi`
+`Nang cap v0.9.2 - Luu lich su ra soat va xuat bao cao loi`
 
 6. Bấm Commit.
 7. Bấm Push origin.
@@ -43,7 +43,7 @@ Trên GitHub cần thấy các phần mới:
 
 Phiên bản mới:
 
-v0.9.0
+v0.9.2.0
 
 Nội dung nâng cấp:
 - Review History
