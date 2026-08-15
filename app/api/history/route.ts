@@ -7,7 +7,12 @@ export async function GET(){
 }
 
 export async function POST(req: Request){
-  const doc = await req.json() as StoredDocument;
-  await saveHistory(doc);
-  return NextResponse.json({ ok: true });
+  try {
+    const doc = await req.json() as StoredDocument;
+    await saveHistory(doc);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("History API error:", error);
+    return NextResponse.json({ ok: false, error: "Không thể lưu lịch sử" }, { status: 500 });
+  }
 }

@@ -36,7 +36,7 @@ export async function saveHistory(doc: StoredDocument) {
     return;
   }
 
-  await supabase.from("review_history").upsert({
+  const { error } = await supabase.from("review_history").upsert({
     id: item.id,
     filename: item.filename,
     created_at: item.createdAt,
@@ -45,6 +45,11 @@ export async function saveHistory(doc: StoredDocument) {
     pending_issues: item.pendingIssues,
     issues: item.issues
   });
+
+  if (error) {
+    console.error("Save history error:", error);
+    throw error;
+  }
 }
 
 export async function getHistory(): Promise<ReviewHistoryItem[]> {

@@ -327,6 +327,18 @@ export default function Home() {
     } catch {}
   }
 
+  async function deleteHistory(id: string) {
+    if (!window.confirm("Xóa phiên lịch sử này?")) return;
+    try {
+      const res = await fetch("/api/history/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) void loadHistory();
+    } catch {}
+  }
+
   useEffect(() => {
     void refreshUsage();
     void loadHistory();
@@ -967,6 +979,10 @@ export default function Home() {
                     <td>{h.totalIssues} lỗi</td>
                     <td>Đã xử lý: {h.resolvedIssues}</td>
                     <td>Chưa xử lý: {h.pendingIssues}</td>
+                    <td>
+                      <button type="button" onClick={() => { setDoc({ id: h.id, filename: h.filename, createdAt: h.createdAt, blocks: [], issues: h.issues || [] }); setStep("review"); }}>Xem lại</button>
+                      <button type="button" onClick={() => deleteHistory(h.id)}>Xóa</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
