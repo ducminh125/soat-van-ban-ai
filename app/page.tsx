@@ -1,6 +1,6 @@
 "use client";
 
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { applyAcceptedIssues, extractBlocks } from "@/lib/docx-client";
@@ -705,6 +705,7 @@ export default function Home() {
   async function saveReviewHistory() {
     if (!doc) return;
     await fetch("/api/history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc) }).catch(() => null);
+    await loadHistory();
   }
 
 
@@ -727,9 +728,9 @@ export default function Home() {
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
     worksheet["!cols"] = [
-      { wch: 8 }, { wch: 18 }, { wch: 80 }, { wch: 80 },
-      { wch: 60 }, { wch: 45 }, { wch: 45 },
-      { wch: 22 }, { wch: 12 }, { wch: 15 }, { wch: 18 }
+      { wch: 8 }, { wch: 22 }, { wch: 55 }, { wch: 55 },
+      { wch: 45 }, { wch: 45 }, { wch: 45 },
+      { wch: 22 }, { wch: 14 }, { wch: 16 }, { wch: 18 }
     ];
 
     const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1:A1");
@@ -737,12 +738,24 @@ export default function Home() {
       for (let c = range.s.c; c <= range.e.c; c++) {
         const cell = worksheet[XLSX.utils.encode_cell({ r, c })];
         if (cell) {
-          cell.s = { alignment: { wrapText: true, vertical: "top" } };
+          cell.s = {
+            font: { name: "Arial", sz: 11 },
+            alignment: { wrapText: true, vertical: "top", horizontal: "left" }
+          };
         }
       }
     }
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cell = worksheet[XLSX.utils.encode_cell({ r: 0, c })];
+      if (cell) {
+        cell.s = {
+          font: { name: "Arial", sz: 11, bold: true },
+          alignment: { wrapText: true, vertical: "center", horizontal: "center" }
+        };
+      }
+    }
 
-    worksheet["!rows"] = rows.map(() => ({ hpt: 60 }));
+    worksheet["!rows"] = rows.map((_, i) => ({ hpt: i === 0 ? 30 : 90 }));
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Tong hop loi AI");
@@ -953,7 +966,7 @@ export default function Home() {
               <tbody>
                 {history.map((h) => (
                   <tr key={h.id}>
-                    <td>{h.filename}</td>
+                    <td>{h.filename}<br/><small>{h.createdAt ? new Date(h.createdAt).toLocaleString("vi-VN") : ""}</small></td>
                     <td>{h.totalIssues} lỗi</td>
                     <td>Đã xử lý: {h.resolvedIssues}</td>
                     <td>Chưa xử lý: {h.pendingIssues}</td>
