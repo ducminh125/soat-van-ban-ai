@@ -887,7 +887,7 @@ export default function Home() {
           <p><b>{doc.filename}</b> · {doc.blocks.length} đoạn có nội dung</p>
 
           <div className="qualityNote">
-            <b>v0.8 Review Workspace:</b> tối đa {LOCAL_CONCURRENCY} phần được rà soát đồng thời. Facts toàn văn được lọc theo khóa lặp giữa nhiều block trước khi gọi model mạnh, giúp giảm token và nhiễu. Retry đã có giới hạn để không chạy vô hạn.
+            <b>Lưu ý:</b> Thời gian AI xử lý văn bản sẽ phụ thuộc trực tiếp vào khối lượng từ trong file của bạn. Các tài liệu dài và nhiều dữ liệu sẽ cần thêm chút thời gian để hệ thống phân tích và đưa ra kết quả chính xác nhất.
           </div>
 
           {usageStats && (
