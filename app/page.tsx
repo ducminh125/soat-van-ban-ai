@@ -795,7 +795,7 @@ export default function Home() {
   return (
     <main className="shell">
       <header className="topbar">
-        <div className="brand">Rà soát chính tả, diễn đạt của văn bản bằng Ai</div>
+        <div className="brand">Rà soát văn bản bằng Ai</div>
         <div className="badge">Mai Đức Minh's website</div>
       </header>
 
@@ -804,7 +804,7 @@ export default function Home() {
       {step === "upload" && (
         <>
           <section className="hero">
-            <h1>Rà soát file Word bằng AI</h1>
+            <h1>Rà soát chính tả, diễn đạt file Word bằng AI</h1>
             <p>Rà soát song song để nhanh hơn, sau đó dùng model mạnh kiểm tra tính nhất quán toàn văn.</p>
           </section>
 <section className="card upload">
