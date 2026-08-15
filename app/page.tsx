@@ -926,7 +926,7 @@ export default function Home() {
 
           <div style={{ marginTop: 22 }} className="row">
             <button className="primary" onClick={review} disabled={busy || quotaExhausted || usageLoading}>
-              {busy ? "Đang rà soát song song..." : quotaExhausted ? `Đã hết ${usageStats?.limit ?? 30} lượt hôm nay` : "Bắt đầu Parallel Review"}
+              {busy ? "Đang rà soát song song..." : quotaExhausted ? `Đã hết ${usageStats?.limit ?? 30} lượt hôm nay` : "Bắt đầu rà soát"}
             </button>
             {busy && <button className="dangerBtn" onClick={stopReview}>Dừng rà soát</button>}
           </div>
