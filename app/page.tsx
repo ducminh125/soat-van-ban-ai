@@ -635,6 +635,8 @@ export default function Home() {
     }
   }
 
+  useEffect(() => { if (reviewComplete && doc) void saveReviewHistory(); }, [reviewComplete, doc]);
+
   function stopReview() {
     cancelRequestedRef.current = true;
     abortAllRequests();
@@ -686,6 +688,11 @@ export default function Home() {
         return safe ? { ...item, status: "accepted" as const } : item;
       })
     });
+  }
+
+  async function saveReviewHistory() {
+    if (!doc) return;
+    await fetch("/api/history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc) }).catch(() => null);
   }
 
   async function exportFile() {
