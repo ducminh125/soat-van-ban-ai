@@ -796,7 +796,7 @@ export default function Home() {
     <main className="shell">
       <header className="topbar">
         <div className="brand">Rà soát chính tả, diễn đạt của văn bản bằng Ai</div>
-        <div className="badge">Review Workspace · v0.8</div>
+        <div className="badge">Mai Đức Minh's website</div>
       </header>
 
       {error && <div className="error">{error}</div>}
