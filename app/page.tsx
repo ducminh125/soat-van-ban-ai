@@ -303,6 +303,7 @@ export default function Home() {
   const [usageResetAt, setUsageResetAt] = useState<number | null>(null);
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [exportReport, setExportReport] = useState<ExportReport | null>(null);
+  const [history, setHistory] = useState<any[]>([]);
 
   const cancelRequestedRef = useRef(false);
   const activeControllersRef = useRef<Set<AbortController>>(new Set());
@@ -316,8 +317,16 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [reviewStartedAt]);
 
+  async function loadHistory() {
+    try {
+      const res = await fetch("/api/history");
+      if (res.ok) setHistory(await res.json());
+    } catch {}
+  }
+
   useEffect(() => {
     void refreshUsage();
+    void loadHistory();
     const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
@@ -802,9 +811,29 @@ export default function Home() {
   return (
     <main className="shell">
       <header className="topbar">
-        <div className="brand">Rà soát chính tả, diễn đạt văn bản bằng Ai</div>
+        <div className="brand">Rà soát chính tả, diễn đạt văn bản bằng AI</div>
         <div className="badge">Mai Đức Minh's website</div>
       </header>
+
+      <section className="card">
+        <h2>Lịch sử rà soát văn bản</h2>
+        <p className="muted">Các phiên rà soát đã lưu trên hệ thống này.</p>
+        {history.length === 0 ? <p>Chưa có lịch sử rà soát.</p> : (
+          <table>
+            <tbody>
+              {history.map((h) => (
+                <tr key={h.id}>
+                  <td>{h.filename}</td>
+                  <td>{h.totalIssues} lỗi</td>
+                  <td>Đã xử lý: {h.resolvedIssues}</td>
+                  <td>Chưa xử lý: {h.pendingIssues}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <button className="secondary" onClick={() => window.open("/api/history/export", "_blank")}>Xuất bảng tổng hợp lỗi</button>
+      </section>
 
       {error && <div className="error">{error}</div>}
 
