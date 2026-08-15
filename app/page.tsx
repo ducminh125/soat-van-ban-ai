@@ -805,7 +805,6 @@ export default function Home() {
         <>
           <section className="hero">
             <h1>Rà soát chính tả, diễn đạt file Word bằng AI</h1>
-         '   <p>Rà soát song song để nhanh hơn, sau đó dùng model mạnh kiểm tra tính nhất quán toàn văn.</p>
           </section>
 <section className="card upload">
             {busy ? (
