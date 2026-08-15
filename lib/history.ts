@@ -66,7 +66,7 @@ export async function getHistory(): Promise<ReviewHistoryItem[]> {
 
   return data.map((x: any) => ({
     id: x.id,
-    file_name: x.filename,
+    filename: x.file_name,
     createdAt: x.created_at,
     totalIssues: x.total_issues,
     resolvedIssues: x.resolved_issues,
