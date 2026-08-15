@@ -38,7 +38,7 @@ export async function saveHistory(doc: StoredDocument) {
 
   const { error } = await supabase.from("review_history").upsert({
     id: item.id,
-    filename: item.filename,
+    file_name: item.filename,
     created_at: item.createdAt,
     total_issues: item.totalIssues,
     resolved_issues: item.resolvedIssues,
@@ -66,7 +66,7 @@ export async function getHistory(): Promise<ReviewHistoryItem[]> {
 
   return data.map((x: any) => ({
     id: x.id,
-    filename: x.filename,
+    file_name: x.filename,
     createdAt: x.created_at,
     totalIssues: x.total_issues,
     resolvedIssues: x.resolved_issues,
