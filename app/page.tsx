@@ -711,21 +711,38 @@ export default function Home() {
   function exportIssueSummary() {
     if (!doc) return;
 
-    const rows = doc.issues.map((issue: any, index: number) => ({
+    const rows = doc.issues.map((issue, index) => ({
       "STT": index + 1,
-      "Nội dung gốc": issue.originalText || issue.original || "",
-      "Đề xuất chỉnh sửa AI": issue.replacement || issue.suggestion || issue.aiReplacement || "",
-      "Giải thích lỗi": issue.explanation || issue.reason || "",
+      "Vị trí đoạn": issue.blockId || "",
+      "Nội dung gốc": issue.originalQuote || "",
+      "Đề xuất chỉnh sửa AI": issue.replacement || issue.aiReplacement || "",
+      "Giải thích lỗi": issue.explanation || "",
+      "Ngữ cảnh trước": issue.contextBefore || "",
+      "Ngữ cảnh sau": issue.contextAfter || "",
       "Loại lỗi": labels[issue.category] || issue.category || "",
-      "Độ tin cậy AI": issue.confidence ?? "",
+      "Mức độ": issue.severity || "",
+      "Độ tin cậy AI": issue.confidence ? `${Math.round(issue.confidence * 100)}%` : "",
       "Trạng thái": issue.status === "accepted" ? "Đã xử lý" : issue.status === "ignored" ? "Đã bỏ qua" : issue.status === "edited" ? "Đã chỉnh sửa" : "Chưa xử lý"
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
     worksheet["!cols"] = [
-      { wch: 8 }, { wch: 45 }, { wch: 45 }, { wch: 55 },
-      { wch: 18 }, { wch: 15 }, { wch: 18 }
+      { wch: 8 }, { wch: 18 }, { wch: 80 }, { wch: 80 },
+      { wch: 60 }, { wch: 45 }, { wch: 45 },
+      { wch: 22 }, { wch: 12 }, { wch: 15 }, { wch: 18 }
     ];
+
+    const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1:A1");
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cell = worksheet[XLSX.utils.encode_cell({ r, c })];
+        if (cell) {
+          cell.s = { alignment: { wrapText: true, vertical: "top" } };
+        }
+      }
+    }
+
+    worksheet["!rows"] = rows.map(() => ({ hpt: 60 }));
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Tong hop loi AI");
