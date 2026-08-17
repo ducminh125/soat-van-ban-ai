@@ -6,9 +6,9 @@ export type ReviewPass = "local" | "global";
 
 const BASE_RULES = `Bạn là hệ thống rà soát văn bản tiếng Việt chất lượng cao.
 Không viết lại toàn bộ đoạn. Không đổi ý tác giả. Không tự thêm dữ kiện, tên, số liệu, ngày tháng hoặc căn cứ pháp lý.
-Chỉ tạo đề xuất khi có ích. original_quote phải sao chép CHÍNH XÁC từ đầu vào. block_id và related_block_ids chỉ được dùng ID có trong đầu vào.
+Chỉ tạo đề xuất khi có ích. original_quote phải sao chép CHÍNH XÁC từ đầu vào. block_id chỉ được dùng ID có trong đầu vào.
 replacement chỉ chứa phần thay cho original_quote. Nếu chỉ cảnh báo hoặc không chắc nên sửa thế nào thì replacement=null.
-Giải thích ngắn gọn, dễ hiểu. Không giới hạn số lỗi nếu các lỗi đều có giá trị.`;
+Giải thích ngắn gọn, tối đa một câu. Không giới hạn số lỗi nếu các lỗi đều có giá trị.`;
 
 const LOCAL_PROMPT = `${BASE_RULES}
 
@@ -17,23 +17,22 @@ LƯỢT CỤC BỘ - RÀ SOÁT TOÀN DIỆN TRONG TỪNG PHẦN:
 2. Phát hiện wording, redundancy, clarity.
 3. Giữ đúng văn phong theo document_profile và review_level.
 4. Không sửa tên riêng, số liệu hoặc thuật ngữ chuyên môn chỉ vì nghi ngờ.
-5. Đồng thời trích xuất các facts có ích cho lượt kiểm tra toàn văn: tên người/cơ quan, thuật ngữ, chữ viết tắt, ngày tháng, số liệu/tỷ lệ/tiền tệ và các phát biểu/kết luận có thể cần đối chiếu với phần khác.
-6. Facts chỉ lấy thông tin thực sự có khả năng cần so sánh chéo; quote phải là nguyên văn trong block. normalized_key là khóa ngắn để gom các facts cùng chủ đề, ví dụ "doanh_thu_2025", "ten_cong_ty", "thoi_han_hop_dong".`;
+5. Đồng thời trích xuất facts cần cho lượt kiểm tra toàn văn: tên người/cơ quan, thuật ngữ, chữ viết tắt, ngày tháng, số liệu/tỷ lệ/tiền tệ và phát biểu/kết luận có khả năng cần đối chiếu.
+6. Chỉ lấy fact thực sự có khả năng so sánh chéo. quote phải là nguyên văn trong block. normalized_key là khóa ngắn để gom các fact cùng chủ đề, ví dụ "doanh_thu_2025", "ten_cong_ty", "thoi_han_hop_dong".`;
 
 const GLOBAL_PROMPT = `Bạn là hệ thống kiểm tra tính nhất quán toàn văn tiếng Việt.
-Bạn nhận một danh sách facts đã trích từ nhiều phần của cùng một tài liệu.
-Nhiệm vụ duy nhất là tìm mâu thuẫn hoặc không thống nhất giữa các facts ở các block khác nhau.
-Tập trung vào term_consistency, content_consistency, possible_conflict: tên cơ quan/người, thuật ngữ, chữ viết tắt, số liệu, tỷ lệ, tiền tệ, ngày tháng, thời hạn và các kết luận có khả năng trái nhau.
-Không suy diễn kiến thức bên ngoài. Không tự quyết định dữ kiện nào đúng. Không tự sửa số liệu.
-Mọi issue toàn văn phải có replacement=null.
-original_quote phải sao chép CHÍNH XÁC từ quote của một fact đầu vào. block_id phải là block_id của fact đó. related_block_ids phải chỉ ra các block còn lại liên quan.
-Chỉ cảnh báo khi có căn cứ đủ rõ từ facts; tránh báo trùng.`;
+Bạn nhận danh sách facts đã được lọc từ nhiều phần của cùng tài liệu.
+Chỉ tìm mâu thuẫn hoặc không thống nhất giữa các facts ở các block khác nhau.
+Tập trung vào term_consistency, content_consistency, possible_conflict: tên cơ quan/người, thuật ngữ, chữ viết tắt, số liệu, tỷ lệ, tiền tệ, ngày tháng, thời hạn và kết luận có khả năng trái nhau.
+Không dùng kiến thức bên ngoài. Không tự quyết định dữ kiện nào đúng. Không tự sửa số liệu.
+original_quote phải sao chép CHÍNH XÁC từ quote của một fact đầu vào. block_id là block_id của fact đó. related_block_ids chỉ gồm các block liên quan khác.
+Chỉ cảnh báo khi có căn cứ đủ rõ; tránh báo trùng. Giải thích tối đa một câu.`;
 
 const LOCAL_TOOL = {
   type: "function",
   function: {
     name: "submit_local_review",
-    description: "Trả lỗi cục bộ và các dữ kiện cần dùng để đối chiếu toàn văn.",
+    description: "Trả lỗi cục bộ và facts cần đối chiếu toàn văn.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -45,7 +44,6 @@ const LOCAL_TOOL = {
             additionalProperties: false,
             properties: {
               block_id: { type: "string" },
-              related_block_ids: { type: "array", items: { type: "string" } },
               category: {
                 type: "string",
                 enum: ["spelling", "punctuation", "grammar", "wording", "redundancy", "clarity"]
@@ -54,13 +52,10 @@ const LOCAL_TOOL = {
               original_quote: { type: "string" },
               replacement: { type: ["string", "null"] },
               explanation: { type: "string" },
-              context_before: { type: "string" },
-              context_after: { type: "string" },
               confidence: { type: "number" }
             },
             required: [
-              "block_id", "related_block_ids", "category", "severity", "original_quote", "replacement",
-              "explanation", "context_before", "context_after", "confidence"
+              "block_id", "category", "severity", "original_quote", "replacement", "explanation", "confidence"
             ]
           }
         },
@@ -74,10 +69,9 @@ const LOCAL_TOOL = {
               kind: { type: "string", enum: ["entity", "term", "abbreviation", "date", "number", "claim"] },
               quote: { type: "string" },
               normalized_key: { type: "string" },
-              value: { type: ["string", "null"] },
-              context: { type: "string" }
+              value: { type: ["string", "null"] }
             },
-            required: ["block_id", "kind", "quote", "normalized_key", "value", "context"]
+            required: ["block_id", "kind", "quote", "normalized_key", "value"]
           }
         }
       },
@@ -90,7 +84,7 @@ const GLOBAL_TOOL = {
   type: "function",
   function: {
     name: "submit_global_review",
-    description: "Trả các cảnh báo không nhất quán hoặc mâu thuẫn giữa các facts của toàn tài liệu.",
+    description: "Trả cảnh báo không nhất quán hoặc mâu thuẫn giữa các facts.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -106,15 +100,11 @@ const GLOBAL_TOOL = {
               category: { type: "string", enum: ["term_consistency", "content_consistency", "possible_conflict"] },
               severity: { type: "string", enum: ["low", "medium", "high"] },
               original_quote: { type: "string" },
-              replacement: { type: ["string", "null"] },
               explanation: { type: "string" },
-              context_before: { type: "string" },
-              context_after: { type: "string" },
               confidence: { type: "number" }
             },
             required: [
-              "block_id", "related_block_ids", "category", "severity", "original_quote", "replacement",
-              "explanation", "context_before", "context_after", "confidence"
+              "block_id", "related_block_ids", "category", "severity", "original_quote", "explanation", "confidence"
             ]
           }
         }
@@ -155,6 +145,17 @@ function clampConfidence(value: unknown) {
   return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.8;
 }
 
+const CONTEXT_CHARS = 72;
+
+function contextAround(text: string, quote: string) {
+  const pos = text.indexOf(quote);
+  if (pos < 0) return { before: "", after: "" };
+  return {
+    before: text.slice(Math.max(0, pos - CONTEXT_CHARS), pos),
+    after: text.slice(pos + quote.length, pos + quote.length + CONTEXT_CHARS)
+  };
+}
+
 function normalizeLocalIssue(raw: unknown, blockMap: Map<string, DocumentBlock>): ReviewIssue | null {
   const item = raw as Record<string, unknown> | null;
   const blockId = String(item?.block_id ?? "");
@@ -170,6 +171,7 @@ function normalizeLocalIssue(raw: unknown, blockMap: Map<string, DocumentBlock>)
   const rawSeverity = String(item?.severity ?? "medium");
   const severity = (["low", "medium", "high"].includes(rawSeverity) ? rawSeverity : "medium") as ReviewIssue["severity"];
   const replacement = item?.replacement === null || item?.replacement === undefined ? null : String(item.replacement);
+  const context = contextAround(block.text, originalQuote);
 
   return {
     id: randomUUID(),
@@ -180,9 +182,9 @@ function normalizeLocalIssue(raw: unknown, blockMap: Map<string, DocumentBlock>)
     originalQuote,
     replacement,
     aiReplacement: replacement,
-    explanation: String(item?.explanation ?? ""),
-    contextBefore: String(item?.context_before ?? ""),
-    contextAfter: String(item?.context_after ?? ""),
+    explanation: String(item?.explanation ?? "").trim().slice(0, 360),
+    contextBefore: context.before,
+    contextAfter: context.after,
     confidence: clampConfidence(item?.confidence),
     status: "pending"
   };
@@ -202,6 +204,7 @@ function normalizeFact(raw: unknown, blockMap: Map<string, DocumentBlock>): Revi
   const kind = (allowedKinds.has(rawKind) ? rawKind : "claim") as ReviewFact["kind"];
   const normalizedKey = String(item?.normalized_key ?? quote).trim().toLocaleLowerCase("vi") || quote.toLocaleLowerCase("vi");
   const value = item?.value === null || item?.value === undefined ? null : String(item.value).trim();
+  const context = contextAround(block.text, quote);
 
   return {
     blockId,
@@ -209,7 +212,7 @@ function normalizeFact(raw: unknown, blockMap: Map<string, DocumentBlock>): Revi
     quote,
     normalizedKey,
     value,
-    context: String(item?.context ?? "").trim().slice(0, 240)
+    context: `${context.before}${quote}${context.after}`.slice(0, 240)
   };
 }
 
@@ -231,6 +234,7 @@ function normalizeGlobalIssue(raw: unknown, facts: ReviewFact[]): ReviewIssue | 
     .map((id) => String(id))
     .filter((id, index, list) => id !== blockId && validBlockIds.has(id) && list.indexOf(id) === index);
   if (!relatedBlockIds.length) return null;
+  const context = contextAround(sourceFact.context, originalQuote);
 
   return {
     id: randomUUID(),
@@ -241,22 +245,32 @@ function normalizeGlobalIssue(raw: unknown, facts: ReviewFact[]): ReviewIssue | 
     originalQuote,
     replacement: null,
     aiReplacement: null,
-    explanation: String(item?.explanation ?? ""),
-    contextBefore: String(item?.context_before ?? ""),
-    contextAfter: String(item?.context_after ?? ""),
+    explanation: String(item?.explanation ?? "").trim().slice(0, 360),
+    contextBefore: context.before,
+    contextAfter: context.after,
     confidence: clampConfidence(item?.confidence),
     status: "pending"
   };
 }
 
-function modelFor(reviewPass: ReviewPass, mode: ModelMode) {
+function isHighRiskGlobalProfile(profile: string) {
+  const configured = process.env.AI_GLOBAL_HIGH_RISK_PROFILES || "contract,academic";
+  const highRiskProfiles = new Set(configured.split(",").map((item) => item.trim()).filter(Boolean));
+  return highRiskProfiles.has(profile);
+}
+
+function modelFor(reviewPass: ReviewPass, mode: ModelMode, profile: string) {
   if (reviewPass === "global") {
-    return mode === "fallback"
-      ? (process.env.OPENAI_DEEP_FALLBACK_MODEL?.trim() || "gpt-5.1-2025-11-13")
-      : (process.env.OPENAI_DEEP_MODEL?.trim() || "gpt-5.6-sol");
+    if (mode === "fallback") {
+      return process.env.OPENAI_DEEP_FALLBACK_MODEL?.trim() || "gpt-5.4-mini-2026-03-17";
+    }
+    if (isHighRiskGlobalProfile(profile)) {
+      return process.env.OPENAI_HIGH_RISK_MODEL?.trim() || "gpt-5.6-sol";
+    }
+    return process.env.OPENAI_DEEP_MODEL?.trim() || "gpt-5.4-mini-2026-03-17";
   }
   return mode === "fallback"
-    ? (process.env.OPENAI_LOCAL_FALLBACK_MODEL?.trim() || "gpt-5.1-2025-11-13")
+    ? (process.env.OPENAI_LOCAL_FALLBACK_MODEL?.trim() || "gpt-5.4-mini-2026-03-17")
     : (process.env.OPENAI_LOCAL_MODEL?.trim() || "gpt-5.4-mini-2026-03-17");
 }
 
@@ -282,7 +296,30 @@ function maxOutputTokens(reviewPass: ReviewPass) {
   return Math.max(1200, Math.min(5000, Math.floor(configured)));
 }
 
-type StreamResult = { content: string; toolArguments: string };
+type TokenUsage = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+};
+
+type StreamResult = { content: string; toolArguments: string; usage?: TokenUsage };
+
+function normalizeUsage(raw: unknown): TokenUsage | undefined {
+  const usage = raw as {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    total_tokens?: unknown;
+    prompt_tokens_details?: { cached_tokens?: unknown };
+  } | null;
+  if (!usage) return undefined;
+  const promptTokens = Number(usage.prompt_tokens ?? 0);
+  const completionTokens = Number(usage.completion_tokens ?? 0);
+  const totalTokens = Number(usage.total_tokens ?? promptTokens + completionTokens);
+  const cachedTokens = Number(usage.prompt_tokens_details?.cached_tokens ?? 0);
+  if (![promptTokens, completionTokens, totalTokens, cachedTokens].every(Number.isFinite)) return undefined;
+  return { promptTokens, completionTokens, totalTokens, cachedTokens };
+}
 
 async function readStream(response: Response, controller: AbortController): Promise<StreamResult> {
   if (!response.body) throw new AIRequestError("AI không trả luồng dữ liệu.", 502, true);
@@ -292,6 +329,7 @@ async function readStream(response: Response, controller: AbortController): Prom
   let buffer = "";
   let content = "";
   let toolArguments = "";
+  let usage: TokenUsage | undefined;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
   const armIdleTimer = () => {
@@ -309,7 +347,10 @@ async function readStream(response: Response, controller: AbortController): Prom
           delta?: { content?: unknown; tool_calls?: Array<{ function?: { arguments?: unknown } }> };
           message?: { content?: unknown; tool_calls?: Array<{ function?: { arguments?: unknown } }> };
         }>;
+        usage?: unknown;
       };
+      const parsedUsage = normalizeUsage(payload.usage);
+      if (parsedUsage) usage = parsedUsage;
       const choice = payload.choices?.[0];
       if (typeof choice?.delta?.content === "string") content += choice.delta.content;
       for (const call of choice?.delta?.tool_calls ?? []) {
@@ -346,7 +387,7 @@ async function readStream(response: Response, controller: AbortController): Prom
   } finally {
     if (idleTimer) clearTimeout(idleTimer);
   }
-  return { content, toolArguments };
+  return { content, toolArguments, usage };
 }
 
 async function readNonStream(response: Response): Promise<StreamResult> {
@@ -357,14 +398,16 @@ async function readNonStream(response: Response): Promise<StreamResult> {
   } catch {
     throw new AIRequestError("AI trả phản hồi không đọc được.", 502, true);
   }
-  const choice = (payload as {
+  const parsed = payload as {
     choices?: Array<{ message?: { content?: unknown; tool_calls?: Array<{ function?: { arguments?: unknown } }> } }>;
-  })?.choices?.[0];
+    usage?: unknown;
+  };
+  const choice = parsed.choices?.[0];
   const content = typeof choice?.message?.content === "string" ? choice.message.content : "";
   const toolArguments = (choice?.message?.tool_calls ?? [])
     .map((call) => typeof call.function?.arguments === "string" ? call.function.arguments : "")
     .join("");
-  return { content, toolArguments };
+  return { content, toolArguments, usage: normalizeUsage(parsed.usage) };
 }
 
 async function callAI(
@@ -376,7 +419,7 @@ async function callAI(
 ) {
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.shopaikey.com/v1").replace(/\/$/, "");
   const apiKey = process.env.OPENAI_API_KEY;
-  const model = modelFor(reviewPass, mode);
+  const model = modelFor(reviewPass, mode, profile);
   if (!apiKey || apiKey === "PASTE_YOUR_KEY_HERE") {
     throw new AIRequestError("Chưa cấu hình OPENAI_API_KEY trên Vercel.", 500, false);
   }
@@ -390,7 +433,17 @@ async function callAI(
   const tool = reviewPass === "global" ? GLOBAL_TOOL : LOCAL_TOOL;
   const toolName = reviewPass === "global" ? "submit_global_review" : "submit_local_review";
   const userPayload = reviewPass === "global"
-    ? { review_pass: "global", facts: input.facts ?? [] }
+    ? {
+        document_profile: profile,
+        review_pass: "global",
+        facts: (input.facts ?? []).map((fact) => ({
+          block_id: fact.blockId,
+          kind: fact.kind,
+          quote: fact.quote,
+          normalized_key: fact.normalizedKey,
+          value: fact.value
+        }))
+      }
     : {
         document_profile: profile,
         review_level: reviewLevel,
@@ -411,6 +464,7 @@ async function callAI(
         model,
         max_tokens: maxOutputTokens(reviewPass),
         stream: true,
+        stream_options: { include_usage: true },
         messages: [
           { role: "system", content: reviewPass === "global" ? GLOBAL_PROMPT : LOCAL_PROMPT },
           { role: "user", content: JSON.stringify(userPayload) }
@@ -451,6 +505,12 @@ async function callAI(
   const result = contentType.includes("text/event-stream")
     ? await readStream(response, controller)
     : await readNonStream(response);
+  if (result.usage) {
+    console.info(
+      `[ai-usage] pass=${reviewPass} model=${model} prompt=${result.usage.promptTokens} ` +
+      `cached=${result.usage.cachedTokens} completion=${result.usage.completionTokens} total=${result.usage.totalTokens}`
+    );
+  }
   const structured = result.toolArguments.trim() || result.content.trim();
   if (!structured) throw new AIRequestError("AI kết thúc nhưng không trả kết quả rà soát.", 502, true);
   return parseJsonObject(structured);
@@ -489,10 +549,11 @@ export async function reviewLocal(
 
 export async function reviewGlobal(
   facts: ReviewFact[],
+  profile = "general",
   mode: ModelMode = "primary"
 ) {
   if (!facts.length) return [];
-  const raw = await callAI({ facts }, "general", "balanced", mode, "global");
+  const raw = await callAI({ facts }, profile, "balanced", mode, "global");
   const rawIssues = Array.isArray(raw?.issues) ? raw.issues : [];
   const issueMap = new Map<string, ReviewIssue>();
   for (const item of rawIssues) {

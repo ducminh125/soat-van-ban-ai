@@ -74,7 +74,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Tập dữ kiện toàn văn quá lớn.", retryable: false }, { status: 400 });
       }
 
-      const issues = await reviewGlobal(facts, modelMode);
+      const issues = await reviewGlobal(facts, profile, modelMode);
       return NextResponse.json({ issues, facts: [], retryable: false, modelMode, reviewPass });
     }
 

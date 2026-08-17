@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Soát Văn Bản AI v0.8",
+  title: "Soát Văn Bản AI v0.9.9",
   description: "Rà soát Word bằng AI với quota và thống kê sử dụng"
 };
 

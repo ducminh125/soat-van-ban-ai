@@ -1,4 +1,6 @@
-# Soát Văn Bản AI v0.8 — Usage Dashboard & Editable Review
+# Soát Văn Bản AI v0.9.9 — Cost-Optimized Review
+
+> **Bản v0.9.9 tối ưu chi phí** giữ `gpt-5.4-mini-2026-03-17` cho local review, dùng Mini cho global thông thường và chỉ dùng `gpt-5.6-sol` cho profile rủi ro cao (`contract`, `academic`). Batch local tăng lên khoảng 5.200 ký tự, concurrency mặc định giảm xuống 2 và structured output được rút gọn để giảm token lặp. Xem `TOI_UU_CHI_PHI_V0_9_9.md`.
 
 v0.8 nâng cấp từ v0.7 theo ba hướng chính: kiểm soát hạn mức sử dụng, tăng độ bền/bảo mật, và cho phép người dùng chủ động sửa mọi đề xuất trước khi chấp nhận.
 
@@ -41,8 +43,8 @@ Múi giờ mặc định: `Asia/Bangkok` (UTC+7), có thể đổi bằng `USAGE
 
 ### 4. Không retry vô hạn
 
-- Local review tối đa 6 lần thử cho một phần nhỏ nhất.
-- Global review tối đa 5 lần thử.
+- Local review tối đa 5 lần thử cho một phần nhỏ nhất.
+- Global review tối đa 4 lần thử.
 - Vẫn giữ fallback model, exponential backoff và tự chia batch.
 - Khi vượt giới hạn retry, hệ thống dừng rõ ràng thay vì chạy mãi.
 
@@ -99,11 +101,13 @@ REVIEW_RESERVATION_TTL_SECONDS=10800
 REVIEW_REQUESTS_PER_MINUTE=120
 
 OPENAI_LOCAL_MODEL=gpt-5.4-mini-2026-03-17
-OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.1-2025-11-13
-OPENAI_DEEP_MODEL=gpt-5.6-sol
-OPENAI_DEEP_FALLBACK_MODEL=gpt-5.1-2025-11-13
+OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.4-mini-2026-03-17
+OPENAI_DEEP_MODEL=gpt-5.4-mini-2026-03-17
+OPENAI_HIGH_RISK_MODEL=gpt-5.6-sol
+AI_GLOBAL_HIGH_RISK_PROFILES=contract,academic
+OPENAI_DEEP_FALLBACK_MODEL=gpt-5.4-mini-2026-03-17
 
-NEXT_PUBLIC_AI_CONCURRENCY=4
+NEXT_PUBLIC_AI_CONCURRENCY=2
 AI_LOCAL_FIRST_BYTE_TIMEOUT_MS=80000
 AI_DEEP_FIRST_BYTE_TIMEOUT_MS=115000
 AI_STREAM_IDLE_TIMEOUT_MS=45000
@@ -129,7 +133,7 @@ Code cũng chấp nhận `KV_REST_API_URL` và `KV_REST_API_TOKEN` nếu integra
 1. Trang chủ đọc statistics từ `/api/usage`.
 2. Người dùng chọn `.docx`; browser đọc các phần Word hỗ trợ.
 3. Khi bấm bắt đầu, `/api/usage` atomically giữ một lượt trong quota ngày.
-4. Browser chia tài liệu thành batch khoảng 2.400 ký tự.
+4. Browser chia tài liệu thành batch khoảng 5.200 ký tự.
 5. Worker pool xử lý local batch song song.
 6. Local review trả `issues` + `facts`.
 7. Facts được loại trùng và lọc theo `normalizedKey` có mặt ở nhiều block.

@@ -63,10 +63,15 @@ type ExportReport = {
 
 class ReviewBatchError extends Error {
   retryable: boolean;
-  constructor(message: string, retryable: boolean) {
+  status?: number;
+  upstreamStatus?: number | null;
+
+  constructor(message: string, retryable: boolean, status?: number, upstreamStatus?: number | null) {
     super(message);
     this.name = "ReviewBatchError";
     this.retryable = retryable;
+    this.status = status;
+    this.upstreamStatus = upstreamStatus;
   }
 }
 
@@ -91,15 +96,15 @@ const labels: Record<string, string> = {
 
 const MAX_FILE_MB = 20;
 const MAX_CHARACTERS = 80000;
-const LOCAL_BATCH_CHARACTERS = 2400;
-const SINGLE_FRAGMENT_CHARACTERS = 1850;
+const LOCAL_BATCH_CHARACTERS = 5200;
+const SINGLE_FRAGMENT_CHARACTERS = 4200;
 const FRAGMENT_OVERLAP = 120;
 const MIN_RECOVERY_CHARACTERS = 480;
 const CLIENT_RETRY_MAX_DELAY_MS = 15000;
-const LOCAL_MAX_ATTEMPTS = 6;
-const GLOBAL_MAX_ATTEMPTS = 5;
-const rawConcurrency = Number(process.env.NEXT_PUBLIC_AI_CONCURRENCY ?? 4);
-const LOCAL_CONCURRENCY = Number.isFinite(rawConcurrency) ? Math.max(1, Math.min(6, Math.floor(rawConcurrency))) : 4;
+const LOCAL_MAX_ATTEMPTS = 5;
+const GLOBAL_MAX_ATTEMPTS = 4;
+const rawConcurrency = Number(process.env.NEXT_PUBLIC_AI_CONCURRENCY ?? 2);
+const LOCAL_CONCURRENCY = Number.isFinite(rawConcurrency) ? Math.max(1, Math.min(6, Math.floor(rawConcurrency))) : 2;
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -439,7 +444,12 @@ export default function Home() {
 
       const retryableStatus = [408, 409, 429, 502, 503, 504, 524].includes(res.status);
       const retryable = data.retryable === true || retryableStatus;
-      throw new ReviewBatchError(data.error || `Rà soát thất bại (HTTP ${res.status}).`, retryable);
+      throw new ReviewBatchError(
+        data.error || `Rà soát thất bại (HTTP ${res.status}).`,
+        retryable,
+        res.status,
+        data.upstreamStatus ?? null
+      );
     } catch (err) {
       if (cancelRequestedRef.current || (err instanceof Error && err.name === "AbortError")) throw new ReviewCancelledError();
       if (err instanceof ReviewBatchError) throw err;
@@ -461,7 +471,7 @@ export default function Home() {
     let attempt = 0;
     while (attempt < LOCAL_MAX_ATTEMPTS) {
       if (cancelRequestedRef.current) throw new ReviewCancelledError();
-      const modelMode: ModelMode = attempt % 2 === 0 ? "primary" : "fallback";
+      const modelMode: ModelMode = attempt < 2 ? "primary" : (attempt % 2 === 0 ? "fallback" : "primary");
       try {
         return await requestLocalOnce(blocks, modelMode);
       } catch (err) {
@@ -470,7 +480,11 @@ export default function Home() {
 
         attempt += 1;
         setReviewProgress((prev) => ({ ...prev, retries: prev.retries + 1 }));
-        if (attempt >= 2) {
+        const effectiveStatus = err instanceof ReviewBatchError
+          ? (err.upstreamStatus ?? err.status ?? 0)
+          : 0;
+        const splitMayHelp = [502, 503, 504, 524].includes(effectiveStatus);
+        if (attempt >= 2 && splitMayHelp) {
           const parts = splitRecoveryBatch(blocks);
           if (parts.length > 1) {
             setReviewProgress((prev) => ({ ...prev, splits: prev.splits + 1 }));
@@ -502,9 +516,9 @@ export default function Home() {
     let attempt = 0;
     while (attempt < GLOBAL_MAX_ATTEMPTS) {
       if (cancelRequestedRef.current) throw new ReviewCancelledError();
-      const modelMode: ModelMode = attempt % 2 === 0 ? "primary" : "fallback";
+      const modelMode: ModelMode = attempt < 2 ? "primary" : (attempt % 2 === 0 ? "fallback" : "primary");
       try {
-        const data = await requestApi({ facts, reviewPass: "global", modelMode });
+        const data = await requestApi({ facts, profile, reviewLevel, reviewPass: "global", modelMode });
         return Array.isArray(data.issues) ? data.issues : [];
       } catch (err) {
         if (err instanceof ReviewCancelledError) throw err;
