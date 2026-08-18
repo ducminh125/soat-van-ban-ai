@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { Redis } from "@upstash/redis";
 import type { DocumentBlock, ReviewFact, ReviewIssue, ReviewSource } from "./types";
 
 export type ModelMode = "primary" | "fallback";
@@ -46,7 +47,8 @@ Nhiệm vụ:
 7. original_quote phải là chuỗi nguyên văn, chọn phần ngắn nhất nhưng đủ để thay thế an toàn.
 8. Khi lỗi và cách sửa là duy nhất, replacement phải là nội dung có thể dán thay trực tiếp. Với danh sách kiểu “A được sửa đổi bởi B và C”, nếu chỉ B sai còn C được xác minh đúng thì ưu tiên replacement tối thiểu để loại B nhưng giữ nguyên C và ngữ pháp câu. Nếu chỉ xác định được có vấn đề nhưng chưa đủ căn cứ chọn cách sửa, replacement=null.
 9. source_urls chỉ chứa URL nguồn chính thức thực tế dùng để kết luận; ưu tiên URL toàn văn/PDF hoặc trang quan hệ văn bản khi đây là căn cứ quyết định.
-10. Chỉ báo lỗi có confidence >= 0.92. Giải thích một câu, nêu rõ điều/khoản hoặc quan hệ nào làm căn cứ cho kết luận.`;
+10. Chỉ báo lỗi có confidence >= 0.92. Giải thích một câu, nêu rõ điều/khoản hoặc quan hệ nào làm căn cứ cho kết luận.
+11. Ưu tiên tốc độ: mỗi mệnh đề chỉ tra đủ để xác minh hoặc bác bỏ; không mở rộng sang nghiên cứu pháp lý không cần thiết. Nếu một nguồn chính thức đã đủ rõ thì dừng tra cứu.`;
 
 const LOCAL_TOOL = {
   type: "function",
@@ -358,6 +360,58 @@ function normalizeGlobalIssue(raw: unknown, facts: ReviewFact[]): ReviewIssue | 
   };
 }
 
+let legalCacheRedis: Redis | null | undefined;
+
+function legalCacheClient() {
+  if (legalCacheRedis !== undefined) return legalCacheRedis;
+  const url = process.env.UPSTASH_REDIS_REST_URL?.trim() || process.env.KV_REST_API_URL?.trim();
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim() || process.env.KV_REST_API_TOKEN?.trim();
+  legalCacheRedis = url && token ? new Redis({ url, token }) : null;
+  return legalCacheRedis;
+}
+
+function legalCacheTtlSeconds() {
+  const raw = Number(process.env.LEGAL_CACHE_TTL_SECONDS ?? 7 * 24 * 60 * 60);
+  if (!Number.isFinite(raw)) return 7 * 24 * 60 * 60;
+  return Math.max(3600, Math.min(30 * 24 * 60 * 60, Math.floor(raw)));
+}
+
+function legalCacheKey(blocks: DocumentBlock[], profile: string, mode: ModelMode) {
+  const material = JSON.stringify({
+    version: "legal-v1.0.2-focused",
+    provider: aiBaseUrl(),
+    model: modelFor("legal", mode, profile, "conservative"),
+    profile,
+    blocks: blocks.map((block) => block.text.trim().replace(/\s+/g, " "))
+  });
+  const digest = createHash("sha256").update(material).digest("hex");
+  const prefix = process.env.LEGAL_CACHE_KEY_PREFIX?.trim() || "soat-van-ban-ai:legal:v1.0.2";
+  return `${prefix}:${digest}`;
+}
+
+async function readLegalCache(blocks: DocumentBlock[], profile: string, mode: ModelMode) {
+  const redis = legalCacheClient();
+  if (!redis) return null;
+  try {
+    const value = await redis.get<unknown>(legalCacheKey(blocks, profile, mode));
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    if (!Array.isArray(parsed)) return null;
+    return (parsed as ReviewIssue[]).map((issue) => ({ ...issue, id: randomUUID() }));
+  } catch {
+    return null;
+  }
+}
+
+async function writeLegalCache(blocks: DocumentBlock[], profile: string, mode: ModelMode, issues: ReviewIssue[]) {
+  const redis = legalCacheClient();
+  if (!redis) return;
+  try {
+    await redis.set(legalCacheKey(blocks, profile, mode), JSON.stringify(issues), { ex: legalCacheTtlSeconds() });
+  } catch {
+    // Cache chỉ để tăng tốc; lỗi cache không được làm hỏng phiên rà soát.
+  }
+}
+
 function officialLegalDomains() {
   const configured = process.env.LEGAL_SEARCH_DOMAINS?.trim();
   const domains = configured
@@ -445,7 +499,7 @@ function modelFor(reviewPass: ReviewPass, mode: ModelMode, profile: string, revi
   if (reviewPass === "legal") {
     return mode === "fallback"
       ? (process.env.OPENAI_LEGAL_FALLBACK_MODEL?.trim() || fastModel)
-      : (process.env.OPENAI_LEGAL_MODEL?.trim() || qualityModel);
+      : (process.env.OPENAI_LEGAL_MODEL?.trim() || fastModel);
   }
   if (reviewPass === "global") {
     if (mode === "fallback") return process.env.OPENAI_DEEP_FALLBACK_MODEL?.trim() || fastModel;
@@ -476,7 +530,7 @@ function aiProviderLabel() {
 }
 
 function requestTimeoutMs(reviewPass: ReviewPass) {
-  const fallback = reviewPass === "legal" ? 175000 : reviewPass === "global" ? 120000 : 95000;
+  const fallback = reviewPass === "legal" ? 60000 : reviewPass === "global" ? 120000 : 95000;
   const envName = reviewPass === "legal"
     ? "AI_LEGAL_TIMEOUT_MS"
     : reviewPass === "global"
@@ -484,11 +538,11 @@ function requestTimeoutMs(reviewPass: ReviewPass) {
       : "AI_LOCAL_TIMEOUT_MS";
   const configured = Number(process.env[envName] ?? fallback);
   if (!Number.isFinite(configured)) return fallback;
-  return Math.max(45000, Math.min(240000, Math.floor(configured)));
+  return Math.max(reviewPass === "legal" ? 30000 : 45000, Math.min(240000, Math.floor(configured)));
 }
 
 function maxOutputTokens(reviewPass: ReviewPass) {
-  const fallback = reviewPass === "legal" ? 5000 : reviewPass === "global" ? 3200 : 2800;
+  const fallback = reviewPass === "legal" ? 2400 : reviewPass === "global" ? 3200 : 2800;
   const envName = reviewPass === "legal"
     ? "AI_LEGAL_MAX_TOKENS"
     : reviewPass === "global"
@@ -718,11 +772,11 @@ async function callLegalAI(blocks: DocumentBlock[], profile: string, mode: Model
       }),
       tools: [{
         type: "web_search",
-        search_context_size: "high",
+        search_context_size: "medium",
         filters: { allowed_domains: allowedDomains }
       }],
       tool_choice: "required",
-      reasoning: { effort: "high" },
+      reasoning: { effort: "medium" },
       text: {
         format: {
           type: "json_schema",
@@ -741,8 +795,16 @@ async function callLegalAI(blocks: DocumentBlock[], profile: string, mode: Model
 
   logUsage("legal", model, normalizeResponsesUsage(payload.usage));
   const content = responsesOutputText(payload);
-  if (!content) throw new AIRequestError("OpenAI không trả kết quả xác minh pháp lý.", 502, true);
-  return { raw: parseJsonObject(content), sources: extractResponseSourceCatalog(payload) };
+  if (!content) throw new AIRequestError(`${aiProviderLabel()} không trả kết quả xác minh pháp lý.`, 502, true);
+  const sources = extractResponseSourceCatalog(payload);
+  if (!sources.size) {
+    throw new AIRequestError(
+      `${aiProviderLabel()} không trả danh sách nguồn chính thức cho lượt xác minh pháp lý; tạm bỏ qua để tránh kết luận thiếu chứng cứ.`,
+      502,
+      true
+    );
+  }
+  return { raw: parseJsonObject(content), sources };
 }
 
 export async function reviewLocal(
@@ -801,6 +863,10 @@ export async function reviewLegal(
   mode: ModelMode = "primary"
 ) {
   if (!blocks.length) return [];
+
+  const cached = await readLegalCache(blocks, profile, mode);
+  if (cached) return cached;
+
   const blockMap = new Map(blocks.map((block) => [block.id, block]));
   const { raw, sources } = await callLegalAI(blocks, profile, mode);
   const rawIssues = Array.isArray(raw?.issues) ? raw.issues : [];
@@ -812,5 +878,7 @@ export async function reviewLegal(
     const existing = issueMap.get(key);
     if (!existing || issue.confidence > existing.confidence) issueMap.set(key, issue);
   }
-  return [...issueMap.values()];
+  const issues = [...issueMap.values()];
+  await writeLegalCache(blocks, profile, mode, issues);
+  return issues;
 }

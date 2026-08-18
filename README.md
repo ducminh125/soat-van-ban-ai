@@ -47,7 +47,7 @@ OPENAI_HIGH_RISK_MODEL=gpt-5.6-sol-ultra
 OPENAI_DEEP_MODEL=gpt-5.6-sol-ultra
 OPENAI_DEEP_FALLBACK_MODEL=gpt-5.6-terra-ultra
 
-OPENAI_LEGAL_MODEL=gpt-5.6-sol-ultra
+OPENAI_LEGAL_MODEL=gpt-5.6-terra-ultra
 OPENAI_LEGAL_FALLBACK_MODEL=gpt-5.6-terra-ultra
 AI_HIGH_RISK_PROFILES=administrative,contract,academic
 
@@ -66,10 +66,10 @@ NEXT_PUBLIC_AI_CONCURRENCY=2
 
 AI_LOCAL_TIMEOUT_MS=95000
 AI_DEEP_TIMEOUT_MS=120000
-AI_LEGAL_TIMEOUT_MS=175000
+AI_LEGAL_TIMEOUT_MS=60000
 AI_LOCAL_MAX_TOKENS=2800
 AI_DEEP_MAX_TOKENS=3200
-AI_LEGAL_MAX_TOKENS=5000
+AI_LEGAL_MAX_TOKENS=2400
 ```
 
 Lịch sử trên Supabase vẫn dùng các biến cũ nếu bạn đã cấu hình:
@@ -112,4 +112,4 @@ Sau đó commit/push lên GitHub để Vercel redeploy.
 
 ## Lưu ý chi phí
 
-Văn bản hành chính/pháp lý mặc định ưu tiên GPT-5.6 Sol nhằm tăng chất lượng. LEGAL review chỉ gửi các paragraph có dấu hiệu viện dẫn pháp luật, không gửi lại toàn bộ tài liệu để tìm kiếm web. Nếu muốn giảm chi phí, có thể đổi `OPENAI_FAST_MODEL`/fallback sang model rẻ hơn, nhưng không nên hạ `OPENAI_LEGAL_MODEL` nếu mục tiêu là kiểm tra căn cứ pháp lý chính xác.
+Văn bản hành chính/pháp lý vẫn ưu tiên model chất lượng cao cho LOCAL/GLOBAL, nhưng LEGAL review mặc định dùng `gpt-5.6-terra-ultra` để giảm độ trễ. LEGAL chỉ gửi tối đa 4 paragraph rủi ro cao (quan hệ sửa đổi/bổ sung/thay thế/bãi bỏ hoặc khẳng định trích yếu/cơ quan/ngày), dùng nguồn chính thức và ngưỡng confidence 92%. Nếu web search chậm/lỗi, lượt LEGAL được bỏ qua theo cơ chế best-effort và không làm hỏng toàn bộ phiên rà soát.

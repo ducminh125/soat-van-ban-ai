@@ -33,6 +33,8 @@ type ReviewApiResponse = {
   upstreamStatus?: number | null;
   modelMode?: ModelMode;
   reviewPass?: ReviewPass;
+  legalSkipped?: boolean;
+  legalWarning?: string;
 };
 
 type UsageStats = {
@@ -107,8 +109,8 @@ const MIN_RECOVERY_CHARACTERS = 480;
 const CLIENT_RETRY_MAX_DELAY_MS = 15000;
 const LOCAL_MAX_ATTEMPTS = 5;
 const GLOBAL_MAX_ATTEMPTS = 4;
-const LEGAL_MAX_ATTEMPTS = 3;
-const LEGAL_BATCH_CHARACTERS = 14000;
+const LEGAL_BATCH_CHARACTERS = 6500;
+const LEGAL_MAX_CANDIDATES = 4;
 const rawConcurrency = Number(process.env.NEXT_PUBLIC_AI_CONCURRENCY ?? 2);
 const LOCAL_CONCURRENCY = Number.isFinite(rawConcurrency) ? Math.max(1, Math.min(6, Math.floor(rawConcurrency))) : 2;
 
@@ -159,15 +161,26 @@ function detectReviewSettings(blocks: DocumentBlock[]): AutoReviewSettings {
   return { profile: "general", reviewLevel: "balanced", reason: "Không thấy cấu trúc chuyên biệt đủ mạnh; dùng cấu hình cân bằng." };
 }
 
-const LEGAL_REFERENCE_RE = /(căn cứ|luật|bộ luật|pháp lệnh|nghị định|nghị quyết|thông tư|quyết định|chỉ thị|văn bản hợp nhất|được sửa đổi|được bổ sung|sửa đổi,? bổ sung|thay thế|bãi bỏ|hướng dẫn|quy định chi tiết)/i;
+const LEGAL_REFERENCE_RE = /(căn cứ|luật|bộ luật|pháp lệnh|nghị định|nghị quyết|thông tư|quyết định|chỉ thị|văn bản hợp nhất)/i;
+const LEGAL_RELATION_RE = /(được\s+sửa đổi|được\s+bổ sung|sửa đổi,?\s*bổ sung|thay thế|bãi bỏ|đình chỉ|hướng dẫn\s+thi hành|quy định\s+chi tiết)/i;
+const LEGAL_METADATA_RE = /(quy định\s+(?:chức năng|nhiệm vụ|quyền hạn|chi tiết)|về\s+việc|ngày\s+\d{1,2}[\/.-]\d{1,2}[\/.-](?:19|20)\d{2}|của\s+(?:Chính phủ|Quốc hội|Thủ tướng|Bộ trưởng|Ủy ban thường vụ Quốc hội))/i;
 const LEGAL_NUMBER_RE = /\b\d{1,4}\/(?:19|20)\d{2}\/[A-ZĐÂĂÊÔƠƯ0-9.-]+\b/u;
 
-function isLegalCandidateBlock(block: DocumentBlock) {
-  return LEGAL_REFERENCE_RE.test(block.text) && LEGAL_NUMBER_RE.test(block.text);
+function legalCandidatePriority(block: DocumentBlock) {
+  if (!LEGAL_REFERENCE_RE.test(block.text) || !LEGAL_NUMBER_RE.test(block.text)) return 0;
+  if (LEGAL_RELATION_RE.test(block.text)) return 3;
+  if (LEGAL_METADATA_RE.test(block.text)) return 2;
+  return 0;
 }
 
 function makeLegalBatches(blocks: DocumentBlock[]) {
-  const candidates = blocks.filter(isLegalCandidateBlock);
+  const candidates = blocks
+    .map((block, index) => ({ block, index, priority: legalCandidatePriority(block) }))
+    .filter((item) => item.priority > 0)
+    .sort((a, b) => b.priority - a.priority || a.index - b.index)
+    .slice(0, LEGAL_MAX_CANDIDATES)
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.block);
   const batches: DocumentBlock[][] = [];
   let current: DocumentBlock[] = [];
   let size = 0;
@@ -418,6 +431,7 @@ export default function Home() {
   const [history, setHistory] = useState<any[]>([]);
   const [showIssueSummary, setShowIssueSummary] = useState(false);
   const [autoSettingsNote, setAutoSettingsNote] = useState("");
+  const [legalWarning, setLegalWarning] = useState("");
 
   const cancelRequestedRef = useRef(false);
   const activeControllersRef = useRef<Set<AbortController>>(new Set());
@@ -649,31 +663,24 @@ export default function Home() {
     );
   }
 
-  async function requestLegalUntilSuccess(blocks: DocumentBlock[]): Promise<ReviewIssue[]> {
-    let attempt = 0;
-    while (attempt < LEGAL_MAX_ATTEMPTS) {
-      if (cancelRequestedRef.current) throw new ReviewCancelledError();
-      const modelMode: ModelMode = attempt < 2 ? "primary" : "fallback";
-      try {
-        const data = await requestApi({ blocks, profile, reviewLevel, reviewPass: "legal", modelMode });
-        return Array.isArray(data.issues) ? data.issues : [];
-      } catch (err) {
-        if (err instanceof ReviewCancelledError) throw err;
-        if (err instanceof ReviewBatchError && !err.retryable) throw err;
-
-        attempt += 1;
-        setReviewProgress((prev) => ({ ...prev, retries: prev.retries + 1 }));
-        if (attempt >= LEGAL_MAX_ATTEMPTS) break;
-        const jitter = Math.floor(Math.random() * 800);
-        const delay = Math.min(CLIENT_RETRY_MAX_DELAY_MS, 2200 * Math.pow(1.7, Math.min(attempt, 5))) + jitter;
-        await sleep(delay);
+  async function requestLegalBestEffort(blocks: DocumentBlock[]): Promise<{ issues: ReviewIssue[]; skipped: boolean }> {
+    if (cancelRequestedRef.current) throw new ReviewCancelledError();
+    try {
+      const data = await requestApi({ blocks, profile, reviewLevel, reviewPass: "legal", modelMode: "primary" });
+      if (data.legalSkipped) {
+        setLegalWarning(data.legalWarning || "Xác minh căn cứ pháp lý trên nguồn chính thức tạm thời không khả dụng.");
+        return { issues: [], skipped: true };
       }
+      return { issues: Array.isArray(data.issues) ? data.issues : [], skipped: false };
+    } catch (err) {
+      if (err instanceof ReviewCancelledError) throw err;
+      if (err instanceof ReviewBatchError && !err.retryable) throw err;
+      setLegalWarning(
+        `Xác minh nguồn chính thức tạm thời chưa hoàn tất (${err instanceof Error ? err.message : "lỗi kết nối"}). ` +
+        "Kết quả ngôn ngữ và nhất quán vẫn được giữ; hãy chạy lại khi cần kiểm chứng pháp lý sâu."
+      );
+      return { issues: [], skipped: true };
     }
-
-    throw new ReviewBatchError(
-      `Xác minh căn cứ pháp lý thất bại sau ${LEGAL_MAX_ATTEMPTS} lần thử.`,
-      false
-    );
   }
 
   async function runLocalPool(
@@ -737,6 +744,7 @@ export default function Home() {
       if (!sessionId) throw new Error("Máy chủ không tạo được phiên rà soát.");
       reviewSessionIdRef.current = sessionId;
 
+      setLegalWarning("");
       startedAt = Date.now();
       setReviewStartedAt(startedAt);
       setElapsedSeconds(0);
@@ -775,12 +783,17 @@ export default function Home() {
 
       if (legalBatches.length) {
         setReviewProgress((prev) => ({ ...prev, legalStatus: "running" }));
+        let legalSkipped = false;
         for (let i = 0; i < legalBatches.length; i += 1) {
-          const legalIssues = await requestLegalUntilSuccess(legalBatches[i]);
-          collectedIssues.push(...legalIssues);
+          const legalResult = await requestLegalBestEffort(legalBatches[i]);
+          if (legalResult.skipped) {
+            legalSkipped = true;
+            break;
+          }
+          collectedIssues.push(...legalResult.issues);
           setReviewProgress((prev) => ({ ...prev, legalDone: i + 1 }));
         }
-        setReviewProgress((prev) => ({ ...prev, legalStatus: "done" }));
+        setReviewProgress((prev) => ({ ...prev, legalStatus: legalSkipped ? "skipped" : "done" }));
       }
 
       const issues = dedupeIssues(collectedIssues);
@@ -1291,6 +1304,12 @@ export default function Home() {
               ? <>Rà soát đã hoàn tất{lastReviewSeconds !== null ? <> trong <b>{formatDuration(lastReviewSeconds)}</b></> : null}. Hãy duyệt các đề xuất bên dưới trước khi tải Word.</>
               : "Bạn đã dừng hoặc quá trình chưa hoàn tất. File xuất chỉ phản ánh những đề xuất đã nhận được trước khi dừng."}
           </div>
+
+          {legalWarning && (
+            <div className="notice">
+              <b>Lưu ý xác minh pháp lý:</b> {legalWarning}
+            </div>
+          )}
 
           {exportReport && (
             <div className={exportReport.skipped > 0 ? "exportNotice exportNoticeWarn" : "exportNotice exportNoticeOk"}>

@@ -104,8 +104,27 @@ export async function POST(request: Request) {
       if (characterCount > MAX_LEGAL_CHARACTERS) {
         return NextResponse.json({ error: "Nhóm viện dẫn pháp lý gửi lên quá lớn.", retryable: false }, { status: 400 });
       }
-      const issues = await reviewLegal(blocks, profile, modelMode);
-      return NextResponse.json({ issues, facts: [], retryable: false, modelMode, reviewPass });
+      try {
+        const issues = await reviewLegal(blocks, profile, modelMode);
+        return NextResponse.json({ issues, facts: [], retryable: false, modelMode, reviewPass });
+      } catch (error) {
+        if (error instanceof AIRequestError) {
+          const upstream = error.upstreamStatus ?? 0;
+          const canSkip = error.retryable || upstream === 400 || upstream === 404 || upstream === 422;
+          if (canSkip) {
+            return NextResponse.json({
+              issues: [],
+              facts: [],
+              retryable: false,
+              legalSkipped: true,
+              legalWarning: `Tạm bỏ qua xác minh nguồn chính thức để không làm hỏng toàn bộ phiên rà soát: ${error.message}`,
+              modelMode,
+              reviewPass
+            });
+          }
+        }
+        throw error;
+      }
     }
 
     const blocks = parseBlocks(body?.blocks);
