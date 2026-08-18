@@ -7,9 +7,9 @@ import { applyAcceptedIssues, extractBlocks } from "@/lib/docx-client";
 import type { DocumentBlock, ReviewFact, ReviewIssue, StoredDocument } from "@/lib/types";
 
 type Step = "upload" | "settings" | "review";
-type ReviewPass = "local" | "global";
+type ReviewPass = "local" | "global" | "legal";
 type ModelMode = "primary" | "fallback";
-type GlobalStatus = "pending" | "running" | "done" | "skipped";
+type PassStatus = "pending" | "running" | "done" | "skipped";
 type IssueStatusFilter = "all" | "pending" | "accepted" | "ignored";
 
 type ReviewProgress = {
@@ -19,7 +19,10 @@ type ReviewProgress = {
   retries: number;
   splits: number;
   facts: number;
-  globalStatus: GlobalStatus;
+  globalStatus: PassStatus;
+  legalStatus: PassStatus;
+  legalDone: number;
+  legalTotal: number;
 };
 
 type ReviewApiResponse = {
@@ -91,7 +94,8 @@ const labels: Record<string, string> = {
   clarity: "Độ rõ ràng",
   term_consistency: "Thuật ngữ",
   content_consistency: "Nhất quán",
-  possible_conflict: "Cảnh báo nội dung"
+  possible_conflict: "Cảnh báo nội dung",
+  legal_reference: "Căn cứ / viện dẫn pháp lý"
 };
 
 const MAX_FILE_MB = 20;
@@ -103,8 +107,83 @@ const MIN_RECOVERY_CHARACTERS = 480;
 const CLIENT_RETRY_MAX_DELAY_MS = 15000;
 const LOCAL_MAX_ATTEMPTS = 5;
 const GLOBAL_MAX_ATTEMPTS = 4;
+const LEGAL_MAX_ATTEMPTS = 3;
+const LEGAL_BATCH_CHARACTERS = 14000;
 const rawConcurrency = Number(process.env.NEXT_PUBLIC_AI_CONCURRENCY ?? 2);
 const LOCAL_CONCURRENCY = Number.isFinite(rawConcurrency) ? Math.max(1, Math.min(6, Math.floor(rawConcurrency))) : 2;
+
+type AutoReviewSettings = {
+  profile: string;
+  reviewLevel: string;
+  reason: string;
+};
+
+function detectReviewSettings(blocks: DocumentBlock[]): AutoReviewSettings {
+  const head = blocks.slice(0, 90).map((block) => block.text).join("\n");
+  const text = head.toLocaleLowerCase("vi");
+  const fullLength = blocks.reduce((sum, block) => sum + block.text.length, 0);
+
+  const contractScore = [
+    /hợp đồng/i, /bên a/i, /bên b/i, /giá trị hợp đồng/i, /điều khoản thanh toán/i
+  ].filter((re) => re.test(head)).length;
+  if (contractScore >= 2) {
+    return { profile: "contract", reviewLevel: "conservative", reason: "Nhận diện cấu trúc hợp đồng; ưu tiên chỉ sửa lỗi rõ ràng và bảo toàn điều khoản." };
+  }
+
+  const administrativeScore = [
+    /cộng hòa xã hội chủ nghĩa việt nam/i, /\bcăn cứ\b/i, /\bchương\s+[ivxlcdm]+/i,
+    /\bđiều\s+\d+/i, /nơi nhận/i, /quy chế|quyết định|thông tư|nghị quyết/i
+  ].filter((re) => re.test(head)).length;
+  if (administrativeScore >= 3) {
+    return { profile: "administrative", reviewLevel: "conservative", reason: "Nhận diện văn bản hành chính/pháp lý có Căn cứ, Chương/Điều hoặc thể thức cơ quan; hệ thống tự chọn mức can thiệp thận trọng." };
+  }
+
+  const academicScore = [
+    /luận văn|luận án|nghiên cứu khoa học/i, /phương pháp nghiên cứu/i, /tài liệu tham khảo/i, /giả thuyết nghiên cứu/i
+  ].filter((re) => re.test(head)).length;
+  if (academicScore >= 2) {
+    return { profile: "academic", reviewLevel: "balanced", reason: "Nhận diện văn bản học thuật; giữ thuật ngữ và chỉ chỉnh khi cải thiện độ chính xác/độ rõ." };
+  }
+
+  const reportScore = [
+    /\bbáo cáo\b/i, /kết quả thực hiện/i, /đánh giá.*kết quả/i, /kiến nghị|đề xuất/i
+  ].filter((re) => re.test(head)).length;
+  if (reportScore >= 2) {
+    return { profile: "report", reviewLevel: "balanced", reason: "Nhận diện báo cáo; ưu tiên chính xác, mạch lạc và nhất quán số liệu/thuật ngữ." };
+  }
+
+  if (fullLength < 12000 && (/kính gửi:/i.test(head) || (/trân trọng/i.test(text) && /subject:|tiêu đề:/i.test(text)))) {
+    return { profile: "email", reviewLevel: "balanced", reason: "Nhận diện thư/email; dùng mức cân bằng để giữ giọng điệu gốc." };
+  }
+
+  return { profile: "general", reviewLevel: "balanced", reason: "Không thấy cấu trúc chuyên biệt đủ mạnh; dùng cấu hình cân bằng." };
+}
+
+const LEGAL_REFERENCE_RE = /(căn cứ|luật|bộ luật|pháp lệnh|nghị định|nghị quyết|thông tư|quyết định|chỉ thị|văn bản hợp nhất|được sửa đổi|được bổ sung|sửa đổi,? bổ sung|thay thế|bãi bỏ|hướng dẫn|quy định chi tiết)/i;
+const LEGAL_NUMBER_RE = /\b\d{1,4}\/(?:19|20)\d{2}\/[A-ZĐÂĂÊÔƠƯ0-9.-]+\b/u;
+
+function isLegalCandidateBlock(block: DocumentBlock) {
+  return LEGAL_REFERENCE_RE.test(block.text) && LEGAL_NUMBER_RE.test(block.text);
+}
+
+function makeLegalBatches(blocks: DocumentBlock[]) {
+  const candidates = blocks.filter(isLegalCandidateBlock);
+  const batches: DocumentBlock[][] = [];
+  let current: DocumentBlock[] = [];
+  let size = 0;
+  for (const block of candidates) {
+    const extra = block.text.length + 40;
+    if (current.length && size + extra > LEGAL_BATCH_CHARACTERS) {
+      batches.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(block);
+    size += extra;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -213,7 +292,24 @@ function dedupeIssues(issues: ReviewIssue[]) {
     const existing = result.get(key);
     if (!existing || issue.confidence > existing.confidence) result.set(key, issue);
   }
-  return [...result.values()];
+  const categoryPriority: Record<string, number> = {
+    legal_reference: 5,
+    possible_conflict: 4,
+    content_consistency: 4,
+    term_consistency: 3,
+    spelling: 2,
+    grammar: 2,
+    punctuation: 2,
+    clarity: 1,
+    redundancy: 1,
+    wording: 1
+  };
+  const severityPriority = { high: 3, medium: 2, low: 1 };
+  return [...result.values()].sort((a, b) =>
+    (categoryPriority[b.category] ?? 0) - (categoryPriority[a.category] ?? 0)
+    || severityPriority[b.severity] - severityPriority[a.severity]
+    || b.confidence - a.confidence
+  );
 }
 
 function dedupeFacts(facts: ReviewFact[]) {
@@ -237,10 +333,16 @@ function factsForGlobalReview(facts: ReviewFact[]) {
     blocksByKey.set(normalizedKey, blocks);
   }
 
-  return deduped.filter((fact) => {
+  const selected = deduped.filter((fact) => {
     const normalizedKey = fact.normalizedKey.trim().toLocaleLowerCase("vi");
-    return normalizedKey && (blocksByKey.get(normalizedKey)?.size ?? 0) >= 2;
+    const repeatedAcrossBlocks = Boolean(normalizedKey) && (blocksByKey.get(normalizedKey)?.size ?? 0) >= 2;
+    const highSignal = fact.kind === "number" || fact.kind === "date" || fact.kind === "abbreviation" || fact.kind === "claim";
+    return repeatedAcrossBlocks || highSignal;
   });
+
+  // Giữ thêm các dữ kiện đơn lẻ có tín hiệu cao để model có thể phát hiện mâu thuẫn ngữ nghĩa
+  // ngay cả khi normalized_key do các batch khác nhau đặt chưa hoàn toàn giống nhau.
+  return selected.slice(0, 600);
 }
 
 function formatDuration(totalSeconds: number) {
@@ -296,7 +398,10 @@ export default function Home() {
     retries: 0,
     splits: 0,
     facts: 0,
-    globalStatus: "pending"
+    globalStatus: "pending",
+    legalStatus: "pending",
+    legalDone: 0,
+    legalTotal: 0
   });
   const [reviewStartedAt, setReviewStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -312,6 +417,7 @@ export default function Home() {
   const [exportReport, setExportReport] = useState<ExportReport | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [showIssueSummary, setShowIssueSummary] = useState(false);
+  const [autoSettingsNote, setAutoSettingsNote] = useState("");
 
   const cancelRequestedRef = useRef(false);
   const activeControllersRef = useRef<Set<AbortController>>(new Set());
@@ -413,6 +519,10 @@ export default function Home() {
         throw new Error(`Bản thử nghiệm hỗ trợ tối đa ${MAX_CHARACTERS.toLocaleString("vi-VN")} ký tự.`);
       }
 
+      const detected = detectReviewSettings(blocks);
+      setProfile(detected.profile);
+      setReviewLevel(detected.reviewLevel);
+      setAutoSettingsNote(detected.reason);
       setOriginalFile(file);
       setDoc({ id: crypto.randomUUID(), filename: file.name, createdAt: new Date().toISOString(), blocks, issues: [] });
       setStep("settings");
@@ -539,6 +649,33 @@ export default function Home() {
     );
   }
 
+  async function requestLegalUntilSuccess(blocks: DocumentBlock[]): Promise<ReviewIssue[]> {
+    let attempt = 0;
+    while (attempt < LEGAL_MAX_ATTEMPTS) {
+      if (cancelRequestedRef.current) throw new ReviewCancelledError();
+      const modelMode: ModelMode = attempt < 2 ? "primary" : "fallback";
+      try {
+        const data = await requestApi({ blocks, profile, reviewLevel, reviewPass: "legal", modelMode });
+        return Array.isArray(data.issues) ? data.issues : [];
+      } catch (err) {
+        if (err instanceof ReviewCancelledError) throw err;
+        if (err instanceof ReviewBatchError && !err.retryable) throw err;
+
+        attempt += 1;
+        setReviewProgress((prev) => ({ ...prev, retries: prev.retries + 1 }));
+        if (attempt >= LEGAL_MAX_ATTEMPTS) break;
+        const jitter = Math.floor(Math.random() * 800);
+        const delay = Math.min(CLIENT_RETRY_MAX_DELAY_MS, 2200 * Math.pow(1.7, Math.min(attempt, 5))) + jitter;
+        await sleep(delay);
+      }
+    }
+
+    throw new ReviewBatchError(
+      `Xác minh căn cứ pháp lý thất bại sau ${LEGAL_MAX_ATTEMPTS} lần thử.`,
+      false
+    );
+  }
+
   async function runLocalPool(
     batches: DocumentBlock[][],
     collectedIssues: ReviewIssue[],
@@ -606,6 +743,7 @@ export default function Home() {
       setLastReviewSeconds(null);
 
       const batches = makeLocalBatches(doc.blocks);
+      const legalBatches = makeLegalBatches(doc.blocks);
       setReviewProgress({
         localDone: 0,
         localTotal: batches.length,
@@ -613,7 +751,10 @@ export default function Home() {
         retries: 0,
         splits: 0,
         facts: 0,
-        globalStatus: "pending"
+        globalStatus: "pending",
+        legalStatus: legalBatches.length ? "pending" : "skipped",
+        legalDone: 0,
+        legalTotal: legalBatches.length
       });
 
       await runLocalPool(batches, collectedIssues, collectedFacts);
@@ -630,6 +771,16 @@ export default function Home() {
         const globalIssues = await requestGlobalUntilSuccess(facts);
         collectedIssues.push(...globalIssues);
         setReviewProgress((prev) => ({ ...prev, globalStatus: "done" }));
+      }
+
+      if (legalBatches.length) {
+        setReviewProgress((prev) => ({ ...prev, legalStatus: "running" }));
+        for (let i = 0; i < legalBatches.length; i += 1) {
+          const legalIssues = await requestLegalUntilSuccess(legalBatches[i]);
+          collectedIssues.push(...legalIssues);
+          setReviewProgress((prev) => ({ ...prev, legalDone: i + 1 }));
+        }
+        setReviewProgress((prev) => ({ ...prev, legalStatus: "done" }));
       }
 
       const issues = dedupeIssues(collectedIssues);
@@ -744,6 +895,7 @@ export default function Home() {
       "Nội dung gốc": issue.originalQuote || "",
       "Đề xuất chỉnh sửa AI": issue.replacement || issue.aiReplacement || "",
       "Giải thích lỗi": issue.explanation || "",
+      "Nguồn đối chiếu": issue.sources?.map((source) => `${source.title}: ${source.url}`).join("\n") || "",
       "Loại lỗi": labels[issue.category] || issue.category || "",
       "Mức độ": issue.severity || "",
       "Độ tin cậy AI": issue.confidence ? `${Math.round(issue.confidence * 100)}%` : "",
@@ -753,7 +905,7 @@ export default function Home() {
     const worksheet = XLSX.utils.json_to_sheet(rows);
     worksheet["!cols"] = [
       { wch: 8 }, { wch: 22 }, { wch: 65 }, { wch: 65 },
-      { wch: 50 }, { wch: 22 }, { wch: 14 }, { wch: 16 }, { wch: 18 }
+      { wch: 50 }, { wch: 52 }, { wch: 22 }, { wch: 14 }, { wch: 16 }, { wch: 18 }
     ];
 
     const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1:A1");
@@ -831,20 +983,22 @@ export default function Home() {
     };
   }, [doc]);
 
-  const totalSteps = reviewProgress.localTotal + 1;
-  const completedSteps = reviewProgress.localDone + ((reviewProgress.globalStatus === "done" || reviewProgress.globalStatus === "skipped") ? 1 : 0);
+  const totalSteps = reviewProgress.localTotal + 2;
+  const completedSteps = reviewProgress.localDone
+    + ((reviewProgress.globalStatus === "done" || reviewProgress.globalStatus === "skipped") ? 1 : 0)
+    + ((reviewProgress.legalStatus === "done" || reviewProgress.legalStatus === "skipped") ? 1 : 0);
   const progressPercent = totalSteps ? Math.round((completedSteps / totalSteps) * 100) : 0;
 
   const etaSeconds = useMemo(() => {
     if (!busy || reviewProgress.localTotal <= 0) return null;
-    if (reviewProgress.globalStatus === "running") return null;
+    if (reviewProgress.globalStatus === "running" || reviewProgress.legalStatus === "running") return null;
     if (reviewProgress.localDone <= 0) return null;
     const rate = elapsedSeconds / reviewProgress.localDone;
     const remainingLocal = Math.max(0, reviewProgress.localTotal - reviewProgress.localDone);
     const localEta = rate * remainingLocal;
     const globalEstimate = Math.max(8, Math.min(60, rate * 0.8));
     return Math.ceil(localEta + globalEstimate);
-  }, [busy, elapsedSeconds, reviewProgress.globalStatus, reviewProgress.localDone, reviewProgress.localTotal]);
+  }, [busy, elapsedSeconds, reviewProgress.globalStatus, reviewProgress.legalStatus, reviewProgress.localDone, reviewProgress.localTotal]);
 
   const categories = useMemo(() => {
     const found = new Set((doc?.issues ?? []).map((issue) => issue.category));
@@ -1011,7 +1165,8 @@ export default function Home() {
           <p><b>{doc.filename}</b> · {doc.blocks.length} đoạn có nội dung</p>
 
           <div className="qualityNote">
-            <b>Lưu ý:</b> Thời gian AI xử lý văn bản sẽ phụ thuộc trực tiếp vào khối lượng từ trong file của bạn. Các tài liệu dài và nhiều dữ liệu sẽ cần thêm chút thời gian để hệ thống phân tích và đưa ra kết quả chính xác nhất.
+            <b>Tự nhận diện:</b> {autoSettingsNote || "Hệ thống đã chọn cấu hình phù hợp theo cấu trúc văn bản."}
+            <br />Bạn vẫn có thể đổi thủ công hai thiết lập bên dưới.
           </div>
 
           {usageStats && (
@@ -1026,7 +1181,7 @@ export default function Home() {
               <label>Loại văn bản</label>
               <select value={profile} onChange={(e) => setProfile(e.target.value)} disabled={busy}>
                 <option value="general">Thông thường</option>
-                <option value="administrative">Văn bản hành chính</option>
+                <option value="administrative">Văn bản hành chính / pháp lý</option>
                 <option value="report">Báo cáo</option>
                 <option value="contract">Hợp đồng</option>
                 <option value="academic">Học thuật / luận văn</option>
@@ -1064,6 +1219,8 @@ export default function Home() {
                     <h3>Đang rà soát song song {reviewProgress.activeWorkers} luồng</h3>
                   ) : reviewProgress.globalStatus === "running" ? (
                     <h3>Đang kiểm tra tính nhất quán toàn văn</h3>
+                  ) : reviewProgress.legalStatus === "running" ? (
+                    <h3>Đang xác minh căn cứ pháp lý trên nguồn chính thức</h3>
                   ) : (
                     <h3>Đang hoàn tất kết quả</h3>
                   )}
@@ -1080,7 +1237,7 @@ export default function Home() {
                 </div>
                 <div className="timeCard">
                   <span>Ước tính còn lại</span>
-                  <strong>{etaSeconds !== null ? `~ ${formatDuration(etaSeconds)}` : reviewProgress.globalStatus === "running" ? "Đang hoàn thiện" : "Đang tính..."}</strong>
+                  <strong>{etaSeconds !== null ? `~ ${formatDuration(etaSeconds)}` : (reviewProgress.globalStatus === "running" || reviewProgress.legalStatus === "running") ? "Đang xác minh" : "Đang tính..."}</strong>
                 </div>
                 <div className="timeCard">
                   <span>Phần đã xử lý</span>
@@ -1093,8 +1250,10 @@ export default function Home() {
                   <span>Đang xử lý {reviewProgress.activeWorkers} phần cùng lúc</span>
                 ) : reviewProgress.globalStatus === "running" ? (
                   <span>Đang đối chiếu {reviewProgress.facts} dữ kiện toàn văn</span>
+                ) : reviewProgress.legalStatus === "running" ? (
+                  <span>Đang xác minh nhóm căn cứ pháp lý {reviewProgress.legalDone + 1}/{Math.max(1, reviewProgress.legalTotal)}</span>
                 ) : (
-                  <span>Kiểm tra toàn văn đã hoàn tất</span>
+                  <span>Kiểm tra toàn văn và pháp lý đã hoàn tất</span>
                 )}
                 <span>Retry: {reviewProgress.retries}</span>
                 <span>Tự chia nhỏ: {reviewProgress.splits}</span>
@@ -1271,6 +1430,19 @@ export default function Home() {
                           <p className="muted small">Có liên quan tới {selectedIssue.relatedBlockIds.length} vị trí khác trong tài liệu.</p>
                         )}
                       </div>
+
+                      {selectedIssue.sources && selectedIssue.sources.length > 0 && (
+                        <div className="reasonBox">
+                          <div className="sectionLabel">Nguồn đối chiếu chính thức</div>
+                          <ul>
+                            {selectedIssue.sources.map((source) => (
+                              <li key={source.url}>
+                                <a href={source.url} target="_blank" rel="noreferrer">{source.title}</a>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
                       <div className="focusActions">
                         <div className="navButtons">

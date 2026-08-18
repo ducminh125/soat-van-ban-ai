@@ -1,172 +1,106 @@
-# Soát Văn Bản AI v0.9.9 — Cost-Optimized Review
+# Soát Văn Bản AI v1.0 — OpenAI + xác minh căn cứ pháp lý
 
-> **Bản v0.9.9 tối ưu chi phí** giữ `gpt-5.4-mini-2026-03-17` cho local review, dùng Mini cho global thông thường và chỉ dùng `gpt-5.6-sol` cho profile rủi ro cao (`contract`, `academic`). Batch local tăng lên khoảng 5.200 ký tự, concurrency mặc định giảm xuống 2 và structured output được rút gọn để giảm token lặp. Xem `TOI_UU_CHI_PHI_V0_9_9.md`.
+Bản v1.0 ưu tiên **độ chính xác và khả năng dùng trực tiếp đề xuất sửa** thay vì cố phát hiện thật nhiều lỗi.
 
-v0.8 nâng cấp từ v0.7 theo ba hướng chính: kiểm soát hạn mức sử dụng, tăng độ bền/bảo mật, và cho phép người dùng chủ động sửa mọi đề xuất trước khi chấp nhận.
+## Điểm thay đổi chính
 
-## Tính năng mới v0.8
+1. **Dùng OpenAI trực tiếp** tại `https://api.openai.com/v1`.
+2. Mặc định dùng **GPT-5.6 Sol** cho các lượt chất lượng cao và văn bản rủi ro cao; **GPT-5.6 Terra** làm model cân bằng/fallback.
+3. Thêm lượt **LEGAL review** bằng Responses API + `web_search` để kiểm chứng số/ký hiệu, trích yếu và quan hệ giữa văn bản pháp luật.
+4. Web search pháp lý mặc định chỉ tra các miền chính thức:
+   - `vanban.chinhphu.vn`
+   - `datafiles.chinhphu.vn`
+   - `congbao.chinhphu.vn`
+   - `vbpl.vn`
+   - `moj.gov.vn`
+5. Với nguồn pháp lý, một cảnh báo chỉ được giữ lại nếu URL nguồn thực sự xuất hiện trong kết quả `web_search` của OpenAI.
+6. Trang **Thiết lập rà soát** tự nhận diện loại văn bản và mức can thiệp. Văn bản hành chính/pháp lý và hợp đồng mặc định chọn **Chỉ lỗi rõ ràng**.
+7. Local review dùng ngưỡng confidence cao và bỏ các đề xuất chỉ mang tính sở thích diễn đạt.
+8. Global review giữ thêm các fact có tín hiệu cao (số liệu, ngày, chữ viết tắt, claim) để tăng khả năng phát hiện mâu thuẫn toàn văn.
+9. Kết quả lỗi pháp lý có mục **Nguồn đối chiếu chính thức** và cột nguồn trong file Excel tổng hợp.
 
-### 1. Hạn mức 30 văn bản/ngày
-
-- Mặc định cho phép tối đa `30` văn bản/ngày (`DAILY_DOCUMENT_LIMIT=30`).
-- Hạn mức được kiểm tra và giữ chỗ ở server trước khi AI bắt đầu xử lý.
-- Nhiều tab chạy đồng thời không thể cùng vượt qua lượt cuối.
-- Nếu người dùng dừng hoặc quá trình thất bại, lượt giữ chỗ được trả lại.
-- Một lượt chỉ được ghi vào thống kê sau khi toàn bộ local review + global review hoàn tất.
-- Phiên giữ chỗ tự hết hạn để tránh kẹt quota nếu trình duyệt bị đóng đột ngột.
-
-Bộ đếm dùng Upstash Redis để tồn tại bền vững khi deploy serverless/Vercel.
-
-### 2. Dashboard thống kê tại trang chủ
-
-Trang chủ hiển thị:
-
-- số văn bản đã rà soát trong ngày hiện tại;
-- số văn bản đã rà soát trong tháng hiện tại;
-- số văn bản đã rà soát trong năm hiện tại;
-- tổng số văn bản đã rà soát;
-- số lượt còn lại trong ngày;
-- số phiên đang xử lý;
-- đồng hồ đếm ngược tới lúc làm mới hạn mức.
-
-Múi giờ mặc định: `Asia/Bangkok` (UTC+7), có thể đổi bằng `USAGE_TIME_ZONE`.
-
-> Bộ đếm bắt đầu từ khi v0.8 được triển khai với Redis. Dữ liệu v0.7 trước đó không được hồi tố tự động.
-
-### 3. Sửa đề xuất trước khi chấp nhận
-
-- Mọi đề xuất AI đều có thể chỉnh sửa trực tiếp.
-- Nếu AI chỉ đưa cảnh báo và trả `replacement=null`, người dùng vẫn có ô để tự nhập nội dung thay thế.
-- Nếu nội dung đã chỉnh khác đề xuất AI, khi chấp nhận sẽ có trạng thái `edited`.
-- Nếu người dùng sửa lại một mục đã chấp nhận, trạng thái quay về `pending` để buộc duyệt lại.
-- Có nút khôi phục đề xuất AI hoặc xóa nội dung tự chỉnh.
-
-### 4. Không retry vô hạn
-
-- Local review tối đa 5 lần thử cho một phần nhỏ nhất.
-- Global review tối đa 4 lần thử.
-- Vẫn giữ fallback model, exponential backoff và tự chia batch.
-- Khi vượt giới hạn retry, hệ thống dừng rõ ràng thay vì chạy mãi.
-
-### 5. Global review ít token hơn
-
-Facts được loại trùng và chỉ giữ các `normalizedKey` xuất hiện ở ít nhất hai block khác nhau trước khi gửi cho model deep-review.
-
-### 6. Bảo mật API chặt hơn
-
-- Production yêu cầu phải có `APP_ACCESS_CODE`; thiếu biến này API sẽ từ chối hoạt động.
-- Mọi request AI phải đi kèm một `review session` hợp lệ đã giữ chỗ quota.
-- Có rate limit theo IP cho API review/usage.
-- API key AI vẫn chỉ nằm phía server.
-
-### 7. Quyền riêng tư được mô tả rõ trên giao diện
-
-File `.docx` gốc được đọc và tạo lại trong trình duyệt, nhưng phần văn bản cần AI xử lý sẽ được gửi tới server và nhà cung cấp AI.
-
-### 8. DOCX được rà soát rộng hơn
-
-Ngoài `word/document.xml`, v0.8 đọc và có thể áp dụng sửa đổi ở:
-
-- header;
-- footer;
-- footnote;
-- endnote.
-
-Khi xuất Word, giao diện báo:
-
-- số sửa đổi đã yêu cầu;
-- số sửa đổi áp dụng thành công;
-- số sửa đổi không tìm lại được vị trí;
-- số sửa đổi đi qua nhiều Word run và nên kiểm tra lại định dạng.
-
-## Environment Variables
+## Cấu hình Vercel bắt buộc
 
 ```env
-OPENAI_API_KEY=...
-OPENAI_BASE_URL=https://api.shopaikey.com/v1
+OPENAI_API_KEY=sk-...
 APP_ACCESS_CODE=...
 
-# Redis dùng cho quota + statistics
 UPSTASH_REDIS_REST_URL=...
 UPSTASH_REDIS_REST_TOKEN=...
+```
 
-# Nếu Vercel integration cung cấp các tên sau thì code cũng tự nhận:
-# KV_REST_API_URL=...
-# KV_REST_API_TOKEN=...
+> Nếu project cũ đang có `OPENAI_BASE_URL=https://api.shopaikey.com/v1`, có thể xóa biến đó. Bản v1.0 gọi trực tiếp OpenAI và không dùng `OPENAI_BASE_URL` nữa.
 
+## Cấu hình model khuyến nghị
+
+Không bắt buộc khai báo vì code đã có default, nhưng nên cấu hình rõ trên Vercel:
+
+```env
+OPENAI_QUALITY_MODEL=gpt-5.6-sol
+OPENAI_FAST_MODEL=gpt-5.6-terra
+
+OPENAI_HIGH_RISK_LOCAL_MODEL=gpt-5.6-sol
+OPENAI_LOCAL_MODEL=gpt-5.6-terra
+OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.6-terra
+
+OPENAI_HIGH_RISK_MODEL=gpt-5.6-sol
+OPENAI_DEEP_MODEL=gpt-5.6-sol
+OPENAI_DEEP_FALLBACK_MODEL=gpt-5.6-terra
+
+OPENAI_LEGAL_MODEL=gpt-5.6-sol
+OPENAI_LEGAL_FALLBACK_MODEL=gpt-5.6-terra
+AI_HIGH_RISK_PROFILES=administrative,contract,academic
+
+LEGAL_SEARCH_DOMAINS=vanban.chinhphu.vn,datafiles.chinhphu.vn,congbao.chinhphu.vn,vbpl.vn,moj.gov.vn
+```
+
+## Các biến hệ thống khác
+
+```env
 DAILY_DOCUMENT_LIMIT=30
 USAGE_TIME_ZONE=Asia/Bangkok
-USAGE_KEY_PREFIX=soat-van-ban-ai:v0.8
+USAGE_KEY_PREFIX=soat-van-ban-ai:v1
 REVIEW_RESERVATION_TTL_SECONDS=10800
 REVIEW_REQUESTS_PER_MINUTE=120
-
-OPENAI_LOCAL_MODEL=gpt-5.4-mini-2026-03-17
-OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.4-mini-2026-03-17
-OPENAI_DEEP_MODEL=gpt-5.4-mini-2026-03-17
-OPENAI_HIGH_RISK_MODEL=gpt-5.6-sol
-AI_GLOBAL_HIGH_RISK_PROFILES=contract,academic
-OPENAI_DEEP_FALLBACK_MODEL=gpt-5.4-mini-2026-03-17
-
 NEXT_PUBLIC_AI_CONCURRENCY=2
-AI_LOCAL_FIRST_BYTE_TIMEOUT_MS=80000
-AI_DEEP_FIRST_BYTE_TIMEOUT_MS=115000
-AI_STREAM_IDLE_TIMEOUT_MS=45000
-AI_LOCAL_MAX_TOKENS=2600
+
+AI_LOCAL_TIMEOUT_MS=95000
+AI_DEEP_TIMEOUT_MS=120000
+AI_LEGAL_TIMEOUT_MS=175000
+AI_LOCAL_MAX_TOKENS=2800
 AI_DEEP_MAX_TOKENS=3200
+AI_LEGAL_MAX_TOKENS=5000
 ```
 
-## Cài Redis trên Vercel
+Lịch sử trên Supabase vẫn dùng các biến cũ nếu bạn đã cấu hình:
 
-v0.8 cần một Redis bền vững để quota hoạt động đúng trên nhiều serverless instance.
-
-Cách thông thường:
-
-1. Tạo một Redis database trên Upstash hoặc cài Upstash integration cho project Vercel.
-2. Thêm `UPSTASH_REDIS_REST_URL` và `UPSTASH_REDIS_REST_TOKEN` vào Environment Variables.
-3. Giữ `DAILY_DOCUMENT_LIMIT=30`.
-4. Redeploy project.
-
-Code cũng chấp nhận `KV_REST_API_URL` và `KV_REST_API_TOKEN` nếu integration của bạn dùng hai tên đó.
-
-## Luồng xử lý v0.8
-
-1. Trang chủ đọc statistics từ `/api/usage`.
-2. Người dùng chọn `.docx`; browser đọc các phần Word hỗ trợ.
-3. Khi bấm bắt đầu, `/api/usage` atomically giữ một lượt trong quota ngày.
-4. Browser chia tài liệu thành batch khoảng 5.200 ký tự.
-5. Worker pool xử lý local batch song song.
-6. Local review trả `issues` + `facts`.
-7. Facts được loại trùng và lọc theo `normalizedKey` có mặt ở nhiều block.
-8. Deep model kiểm tra nhất quán toàn văn.
-9. Khi toàn bộ review thành công, server chuyển lượt giữ chỗ thành một lượt hoàn tất và tăng counter ngày/tháng/năm/tổng.
-10. Người dùng sửa/chấp nhận/bỏ qua từng đề xuất.
-11. Browser áp dụng các thay đổi đã duyệt vào DOCX và báo kết quả export.
-
-Nếu review bị hủy hoặc lỗi trước khi hoàn tất, lượt giữ chỗ được release.
-
-## Các API mới
-
-### `GET /api/usage`
-
-Trả statistics và số giây còn lại tới khi reset ngày.
-
-### `POST /api/usage`
-
-Các action:
-
-- `start`: giữ chỗ quota và trả `sessionId`;
-- `complete`: hoàn tất session và tăng counter;
-- `release`: trả lại lượt đang giữ chỗ.
-
-### `POST /api/review`
-
-Ngoài `x-app-access-code`, v0.8 yêu cầu header:
-
-```text
-x-review-session-id: <sessionId>
+```env
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
-## Kiểm tra trước khi deploy
+## Luồng rà soát v1.0
+
+1. Browser đọc `.docx` và tách thành các paragraph/block.
+2. Hệ thống tự nhận diện profile: hành chính/pháp lý, hợp đồng, báo cáo, học thuật, email hoặc thông thường.
+3. Local review xử lý chính tả, dấu câu, ngữ pháp và chỉ giữ đề xuất diễn đạt có confidence cao.
+4. Global review đối chiếu facts giữa nhiều phần của văn bản.
+5. Các block có số/ký hiệu văn bản pháp luật được gom riêng cho LEGAL review.
+6. LEGAL review bắt buộc chạy OpenAI Responses API `web_search`, giới hạn nguồn chính thức và dùng structured output.
+7. Lỗi pháp lý được ưu tiên hiển thị trước; người dùng có thể mở nguồn trước khi chấp nhận sửa.
+8. Chỉ các issue đã chấp nhận/đã chỉnh mới được áp dụng vào Word tải xuống.
+
+## Ca hồi quy quan trọng
+
+Với câu:
+
+> Căn cứ Nghị định số 29/2025/NĐ-CP ... được sửa đổi, bổ sung tại Nghị định số 109/2025/NĐ-CP và Nghị định số 166/2025/NĐ-CP;
+
+LEGAL review phải kiểm tra **từng văn bản 109 và 166**, đặc biệt là toàn văn/điều khoản tác động chứ không suy đoán từ trích yếu. Với ca này, hệ thống **không được báo sai rằng Nghị định 109 không sửa Nghị định 29**: Điều 4 khoản 3 của Nghị định 109 có sửa/bãi bỏ một số nội dung của Nghị định 29. Đây là regression test chống false positive pháp lý.
+
+Xem thêm `CAP_NHAT_V1_0_OPENAI.md` và `tests/QUALITY_REGRESSION.md`.
+
+## Cài đặt và kiểm tra
 
 ```bash
 npm install
@@ -174,21 +108,8 @@ npm run typecheck
 npm run build
 ```
 
-Sau lần `npm install` đầu tiên, nên commit `package-lock.json` để khóa dependency chính xác cho production.
+Sau đó commit/push lên GitHub để Vercel redeploy.
 
-## Ghi chú về định dạng Word
+## Lưu ý chi phí
 
-Việc thay một câu trải qua nhiều `w:t`/Word run có thể làm phần nội dung thay thế kế thừa chủ yếu định dạng của run đầu tiên. v0.8 phát hiện và báo số trường hợp này khi export để người dùng kiểm tra lại.
-
-## Các file chính v0.8
-
-- `app/page.tsx`
-- `app/globals.css`
-- `app/api/review/route.ts`
-- `app/api/usage/route.ts`
-- `lib/ai.ts`
-- `lib/docx-client.ts`
-- `lib/types.ts`
-- `lib/usage.ts`
-- `.env.example`
-- `package.json`
+Văn bản hành chính/pháp lý mặc định ưu tiên GPT-5.6 Sol nhằm tăng chất lượng. LEGAL review chỉ gửi các paragraph có dấu hiệu viện dẫn pháp luật, không gửi lại toàn bộ tài liệu để tìm kiếm web. Nếu muốn giảm chi phí, có thể đổi `OPENAI_FAST_MODEL`/fallback sang model rẻ hơn, nhưng không nên hạ `OPENAI_LEGAL_MODEL` nếu mục tiêu là kiểm tra căn cứ pháp lý chính xác.

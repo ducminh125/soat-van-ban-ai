@@ -1,5 +1,12 @@
 export type ReviewStatus = "pending" | "accepted" | "ignored" | "edited" | "conflict";
 
+export type ReviewSource = {
+  title: string;
+  url: string;
+  domain: string;
+  official: boolean;
+};
+
 export type ReviewIssue = {
   id: string;
   blockId: string;
@@ -13,7 +20,8 @@ export type ReviewIssue = {
     | "clarity"
     | "term_consistency"
     | "content_consistency"
-    | "possible_conflict";
+    | "possible_conflict"
+    | "legal_reference";
   severity: "low" | "medium" | "high";
   originalQuote: string;
   replacement: string | null;
@@ -23,6 +31,7 @@ export type ReviewIssue = {
   contextAfter: string;
   confidence: number;
   status: ReviewStatus;
+  sources?: ReviewSource[];
 };
 
 export type ReviewFact = {

@@ -1,0 +1,34 @@
+SOAT VAN BAN AI v1.0 - CHECK REPORT
+Date: 2026-08-18
+
+1. Static syntax transpile
+- lib/types.ts: PASS
+- lib/ai.ts: PASS
+- app/api/review/route.ts: PASS
+- app/page.tsx: PASS
+
+2. Core strict TypeScript check
+- lib/types.ts + lib/ai.ts: PASS (temporary environment shim only for node:crypto/process types)
+
+3. Regression fixture: Duthao Quychephoihop NQ205(1).docx
+- Non-empty body paragraphs read for detector test: 61
+- Text characters in these paragraphs: 10819
+- Administrative detector score: 4 (threshold 3)
+- Auto setting: administrative + conservative
+- Legal candidate blocks: 9
+- Legal candidate characters: 2704
+- Paragraph containing 109/2025/ND-CP is included in LEGAL review: PASS
+- Regression expectation: do NOT flag 109 as unrelated based only on its title; verify Article 4(3) full text
+- BHTYN typo exists in fixture for local-review regression: PASS
+
+4. Network/build limitations in this sandbox
+- npm registry check: FAIL with EAI_AGAIN (registry.npmjs.org DNS unavailable)
+- node_modules: not installed
+- Therefore full npm run typecheck / npm run build could not be executed here.
+- OPENAI_API_KEY in this sandbox: absent
+- Live OpenAI request was not executed in this sandbox.
+
+5. Deployment verification required
+- Configure OPENAI_API_KEY on Vercel.
+- Run npm install, npm run typecheck, npm run build in an environment with npm registry access.
+- Run tests/QUALITY_REGRESSION.md after deployment.

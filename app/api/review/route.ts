@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { AIRequestError, reviewGlobal, reviewLocal, type ModelMode, type ReviewPass } from "@/lib/ai";
+import { AIRequestError, reviewGlobal, reviewLegal, reviewLocal, type ModelMode, type ReviewPass } from "@/lib/ai";
 import type { DocumentBlock, ReviewFact } from "@/lib/types";
 import { assertReviewSession, enforceRateLimit, UsageStorageError } from "@/lib/usage";
 
@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const MAX_LOCAL_CHARACTERS = 6500;
+const MAX_LEGAL_CHARACTERS = 18000;
 const MAX_GLOBAL_PAYLOAD_CHARACTERS = 180000;
 
 function accessError(request: Request) {
@@ -30,6 +31,21 @@ function clientKey(request: Request) {
   return forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
+function parseBlocks(raw: unknown): DocumentBlock[] {
+  const rawBlocks = Array.isArray(raw) ? raw : [];
+  return rawBlocks
+    .map((item: unknown) => {
+      const block = item as Partial<DocumentBlock>;
+      return {
+        id: String(block?.id ?? ""),
+        partName: String(block?.partName ?? "word/document.xml"),
+        paragraphIndex: Number(block?.paragraphIndex ?? 0),
+        text: String(block?.text ?? "")
+      };
+    })
+    .filter((block: DocumentBlock) => block.id && block.text.trim());
+}
+
 export async function POST(request: Request) {
   try {
     await enforceRateLimit(`review:${clientKey(request)}`);
@@ -44,7 +60,8 @@ export async function POST(request: Request) {
     const profile = String(body?.profile ?? "general");
     const reviewLevel = String(body?.reviewLevel ?? "balanced");
     const modelMode: ModelMode = body?.modelMode === "fallback" ? "fallback" : "primary";
-    const reviewPass: ReviewPass = body?.reviewPass === "global" ? "global" : "local";
+    const passValue = String(body?.reviewPass ?? "local");
+    const reviewPass: ReviewPass = passValue === "global" ? "global" : passValue === "legal" ? "legal" : "local";
 
     if (reviewPass === "global") {
       const rawFacts = Array.isArray(body?.facts) ? body.facts : [];
@@ -78,19 +95,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ issues, facts: [], retryable: false, modelMode, reviewPass });
     }
 
-    const rawBlocks = Array.isArray(body?.blocks) ? body.blocks : [];
-    const blocks: DocumentBlock[] = rawBlocks
-      .map((item: unknown) => {
-        const block = item as Partial<DocumentBlock>;
-        return {
-          id: String(block?.id ?? ""),
-          partName: String(block?.partName ?? "word/document.xml"),
-          paragraphIndex: Number(block?.paragraphIndex ?? 0),
-          text: String(block?.text ?? "")
-        };
-      })
-      .filter((block: DocumentBlock) => block.id && block.text.trim());
+    if (reviewPass === "legal") {
+      const blocks = parseBlocks(body?.blocks);
+      if (!blocks.length) {
+        return NextResponse.json({ issues: [], facts: [], retryable: false, modelMode, reviewPass });
+      }
+      const characterCount = blocks.reduce((sum, block) => sum + block.text.length, 0);
+      if (characterCount > MAX_LEGAL_CHARACTERS) {
+        return NextResponse.json({ error: "Nhóm viện dẫn pháp lý gửi lên quá lớn.", retryable: false }, { status: 400 });
+      }
+      const issues = await reviewLegal(blocks, profile, modelMode);
+      return NextResponse.json({ issues, facts: [], retryable: false, modelMode, reviewPass });
+    }
 
+    const blocks = parseBlocks(body?.blocks);
     if (!blocks.length) {
       return NextResponse.json({ error: "Không có nội dung để rà soát.", retryable: false }, { status: 400 });
     }
