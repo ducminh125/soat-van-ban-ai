@@ -492,13 +492,30 @@ function isHighRiskProfile(profile: string) {
   return highRiskProfiles.has(profile);
 }
 
+function isProviderUnavailableError(error: unknown) {
+  const message = String(error || "").toLowerCase();
+  return (
+    message.includes("503") ||
+    message.includes("no available channel") ||
+    message.includes("无可用渠道") ||
+    message.includes("unavailable channel")
+  );
+}
+
+function getProviderSafeFallback(pass: ReviewPass) {
+  if (pass === "legal") {
+    return process.env.OPENAI_LEGAL_FALLBACK_MODEL?.trim() || "gpt-5.4-nano";
+  }
+  return process.env.OPENAI_FALLBACK_MODEL?.trim() || "gpt-5.4-nano";
+}
+
 function modelFor(reviewPass: ReviewPass, mode: ModelMode, profile: string, reviewLevel: string) {
   // Automatic routing is intentionally two-tiered:
   // - fastModel: objective/local work and fallbacks
   // - qualityModel: consistency and high-risk administrative/legal language
   // Sol is kept as an opt-in expert model via environment variables, not an automatic default.
   const fastModel = process.env.OPENAI_FAST_MODEL?.trim() || "gpt-5.4-nano-2026-03-17";
-  const qualityModel = process.env.OPENAI_QUALITY_MODEL?.trim() || "gpt-5.6-terra-ultra";
+  const qualityModel = process.env.OPENAI_QUALITY_MODEL?.trim() || "gpt-5.6-terra";
 
   if (reviewPass === "legal") {
     return mode === "fallback"
@@ -523,7 +540,7 @@ const LEGAL_RELATION_TEXT_RE = /(được\s+sửa đổi|được\s+bổ sung|s�
 
 function legalRouting(blocks: DocumentBlock[], mode: ModelMode) {
   const fastModel = process.env.OPENAI_FAST_MODEL?.trim() || "gpt-5.4-nano-2026-03-17";
-  const qualityModel = process.env.OPENAI_QUALITY_MODEL?.trim() || "gpt-5.6-terra-ultra";
+  const qualityModel = process.env.OPENAI_QUALITY_MODEL?.trim() || "gpt-5.6-terra";
   const hasLegalRelation = blocks.some((block) => LEGAL_RELATION_TEXT_RE.test(block.text));
 
   if (mode === "fallback") {
