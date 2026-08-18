@@ -1,0 +1,10 @@
+Version: v1.0.4 Stable Pipeline
+
+Included:
+- model routing document
+- retry policy
+- segment recovery policy
+- environment update guide
+
+Note:
+Apply source changes from the development branch before production deployment.
