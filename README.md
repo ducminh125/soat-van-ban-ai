@@ -1,11 +1,11 @@
-# Soát Văn Bản AI v1.0 — OpenAI + xác minh căn cứ pháp lý
+# Soát Văn Bản AI v1.0.3 — Model routing tối ưu + xác minh căn cứ pháp lý
 
-Bản v1.0 ưu tiên **độ chính xác và khả năng dùng trực tiếp đề xuất sửa** thay vì cố phát hiện thật nhiều lỗi.
+Bản v1.0.3 ưu tiên **độ chính xác, tốc độ và khả năng dùng trực tiếp đề xuất sửa**. Model được chọn theo nhiệm vụ thay vì dùng model lớn cho mọi lượt.
 
 ## Điểm thay đổi chính
 
 1. **Dùng ShopAIKey theo chuẩn OpenAI-compatible** tại `https://api.shopaikey.com/v1` (có thể đổi bằng `OPENAI_BASE_URL`).
-2. Mặc định dùng **GPT-5.6 Sol** cho các lượt chất lượng cao và văn bản rủi ro cao; **GPT-5.6 Terra** làm model cân bằng/fallback.
+2. Định tuyến model theo nhiệm vụ: **GPT-5.4 nano** cho LOCAL/trích xuất dữ kiện và các kiểm tra đơn giản; **GPT-5.6 Terra** cho GLOBAL rủi ro cao và quan hệ pháp lý phức tạp. **Sol không chạy tự động**.
 3. Thêm lượt **LEGAL review** bằng Responses API + `web_search` để kiểm chứng số/ký hiệu, trích yếu và quan hệ giữa văn bản pháp luật.
 4. Web search pháp lý mặc định chỉ tra các miền chính thức:
    - `vanban.chinhphu.vn`
@@ -36,23 +36,27 @@ UPSTASH_REDIS_REST_TOKEN=...
 Không bắt buộc khai báo vì code đã có default, nhưng nên cấu hình rõ trên Vercel:
 
 ```env
-OPENAI_QUALITY_MODEL=gpt-5.6-sol-ultra
-OPENAI_FAST_MODEL=gpt-5.6-terra-ultra
+OPENAI_FAST_MODEL=gpt-5.4-nano-2026-03-17
+OPENAI_QUALITY_MODEL=gpt-5.6-terra-ultra
 
-OPENAI_HIGH_RISK_LOCAL_MODEL=gpt-5.6-sol-ultra
-OPENAI_LOCAL_MODEL=gpt-5.6-terra-ultra
-OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.6-terra-ultra
+OPENAI_HIGH_RISK_LOCAL_MODEL=gpt-5.4-nano-2026-03-17
+OPENAI_LOCAL_MODEL=gpt-5.4-nano-2026-03-17
+OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.4-nano-2026-03-17
 
-OPENAI_HIGH_RISK_MODEL=gpt-5.6-sol-ultra
-OPENAI_DEEP_MODEL=gpt-5.6-sol-ultra
-OPENAI_DEEP_FALLBACK_MODEL=gpt-5.6-terra-ultra
+OPENAI_HIGH_RISK_MODEL=gpt-5.6-terra-ultra
+OPENAI_DEEP_MODEL=gpt-5.4-nano-2026-03-17
+OPENAI_DEEP_FALLBACK_MODEL=gpt-5.4-nano-2026-03-17
 
+OPENAI_LEGAL_FAST_MODEL=gpt-5.4-nano-2026-03-17
+OPENAI_LEGAL_RELATION_MODEL=gpt-5.6-terra-ultra
 OPENAI_LEGAL_MODEL=gpt-5.6-terra-ultra
-OPENAI_LEGAL_FALLBACK_MODEL=gpt-5.6-terra-ultra
+OPENAI_LEGAL_FALLBACK_MODEL=gpt-5.4-nano-2026-03-17
 AI_HIGH_RISK_PROFILES=administrative,contract,academic
 
 LEGAL_SEARCH_DOMAINS=vanban.chinhphu.vn,datafiles.chinhphu.vn,congbao.chinhphu.vn,vbpl.vn,moj.gov.vn
 ```
+
+**Logic:** LOCAL luôn ưu tiên Nano vì chỉ bắt lỗi ngôn ngữ khách quan và trích xuất facts. GLOBAL dùng Terra khi profile là hành chính/pháp lý, hợp đồng hoặc học thuật; các profile khác dùng Nano. LEGAL dùng Nano cho số hiệu/cơ quan/trích yếu, nhưng tự nâng lên Terra khi câu có quan hệ sửa đổi, bổ sung, thay thế, bãi bỏ, đình chỉ hoặc quy định chi tiết.
 
 ## Các biến hệ thống khác
 
@@ -64,12 +68,12 @@ REVIEW_RESERVATION_TTL_SECONDS=10800
 REVIEW_REQUESTS_PER_MINUTE=120
 NEXT_PUBLIC_AI_CONCURRENCY=2
 
-AI_LOCAL_TIMEOUT_MS=95000
-AI_DEEP_TIMEOUT_MS=120000
-AI_LEGAL_TIMEOUT_MS=60000
-AI_LOCAL_MAX_TOKENS=2800
-AI_DEEP_MAX_TOKENS=3200
-AI_LEGAL_MAX_TOKENS=2400
+AI_LOCAL_TIMEOUT_MS=55000
+AI_DEEP_TIMEOUT_MS=75000
+AI_LEGAL_TIMEOUT_MS=45000
+AI_LOCAL_MAX_TOKENS=2200
+AI_DEEP_MAX_TOKENS=2600
+AI_LEGAL_MAX_TOKENS=1800
 ```
 
 Lịch sử trên Supabase vẫn dùng các biến cũ nếu bạn đã cấu hình:
@@ -79,7 +83,7 @@ SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
-## Luồng rà soát v1.0
+## Luồng rà soát v1.0.3
 
 1. Browser đọc `.docx` và tách thành các paragraph/block.
 2. Hệ thống tự nhận diện profile: hành chính/pháp lý, hợp đồng, báo cáo, học thuật, email hoặc thông thường.
@@ -112,4 +116,4 @@ Sau đó commit/push lên GitHub để Vercel redeploy.
 
 ## Lưu ý chi phí
 
-Văn bản hành chính/pháp lý vẫn ưu tiên model chất lượng cao cho LOCAL/GLOBAL, nhưng LEGAL review mặc định dùng `gpt-5.6-terra-ultra` để giảm độ trễ. LEGAL chỉ gửi tối đa 4 paragraph rủi ro cao (quan hệ sửa đổi/bổ sung/thay thế/bãi bỏ hoặc khẳng định trích yếu/cơ quan/ngày), dùng nguồn chính thức và ngưỡng confidence 92%. Nếu web search chậm/lỗi, lượt LEGAL được bỏ qua theo cơ chế best-effort và không làm hỏng toàn bộ phiên rà soát.
+LOCAL không còn dùng Sol/Terra tự động mà dùng `gpt-5.4-nano-2026-03-17`. GLOBAL chỉ nâng lên `gpt-5.6-terra-ultra` cho profile rủi ro cao. LEGAL dùng Nano cho metadata và Terra với reasoning thấp cho quan hệ pháp lý. Lượt LEGAL vẫn giới hạn tối đa 4 paragraph rủi ro cao, ngưỡng confidence 92%, có cache và best-effort khi nguồn chính thức chậm/lỗi.

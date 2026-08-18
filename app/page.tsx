@@ -107,8 +107,8 @@ const SINGLE_FRAGMENT_CHARACTERS = 4200;
 const FRAGMENT_OVERLAP = 120;
 const MIN_RECOVERY_CHARACTERS = 480;
 const CLIENT_RETRY_MAX_DELAY_MS = 15000;
-const LOCAL_MAX_ATTEMPTS = 5;
-const GLOBAL_MAX_ATTEMPTS = 4;
+const LOCAL_MAX_ATTEMPTS = 3;
+const GLOBAL_MAX_ATTEMPTS = 2;
 const LEGAL_BATCH_CHARACTERS = 6500;
 const LEGAL_MAX_CANDIDATES = 4;
 const rawConcurrency = Number(process.env.NEXT_PUBLIC_AI_CONCURRENCY ?? 2);
@@ -595,7 +595,7 @@ export default function Home() {
     let attempt = 0;
     while (attempt < LOCAL_MAX_ATTEMPTS) {
       if (cancelRequestedRef.current) throw new ReviewCancelledError();
-      const modelMode: ModelMode = attempt < 2 ? "primary" : (attempt % 2 === 0 ? "fallback" : "primary");
+      const modelMode: ModelMode = attempt === 0 ? "primary" : "fallback";
       try {
         return await requestLocalOnce(blocks, modelMode);
       } catch (err) {
@@ -640,7 +640,7 @@ export default function Home() {
     let attempt = 0;
     while (attempt < GLOBAL_MAX_ATTEMPTS) {
       if (cancelRequestedRef.current) throw new ReviewCancelledError();
-      const modelMode: ModelMode = attempt < 2 ? "primary" : (attempt % 2 === 0 ? "fallback" : "primary");
+      const modelMode: ModelMode = attempt === 0 ? "primary" : "fallback";
       try {
         const data = await requestApi({ facts, profile, reviewLevel, reviewPass: "global", modelMode });
         return Array.isArray(data.issues) ? data.issues : [];
@@ -1179,6 +1179,7 @@ export default function Home() {
 
           <div className="qualityNote">
             <b>Tự nhận diện:</b> {autoSettingsNote || "Hệ thống đã chọn cấu hình phù hợp theo cấu trúc văn bản."}
+            <br /><b>Định tuyến AI:</b> Nano xử lý lỗi cục bộ/trích xuất dữ kiện; Terra chỉ dùng cho nhất quán rủi ro cao và quan hệ pháp lý phức tạp. Sol không chạy tự động.
             <br />Bạn vẫn có thể đổi thủ công hai thiết lập bên dưới.
           </div>
 

@@ -493,24 +493,60 @@ function isHighRiskProfile(profile: string) {
 }
 
 function modelFor(reviewPass: ReviewPass, mode: ModelMode, profile: string, reviewLevel: string) {
-  const qualityModel = process.env.OPENAI_QUALITY_MODEL?.trim() || "gpt-5.6-sol-ultra";
-  const fastModel = process.env.OPENAI_FAST_MODEL?.trim() || "gpt-5.6-terra-ultra";
+  // Automatic routing is intentionally two-tiered:
+  // - fastModel: objective/local work and fallbacks
+  // - qualityModel: consistency and high-risk administrative/legal language
+  // Sol is kept as an opt-in expert model via environment variables, not an automatic default.
+  const fastModel = process.env.OPENAI_FAST_MODEL?.trim() || "gpt-5.4-nano-2026-03-17";
+  const qualityModel = process.env.OPENAI_QUALITY_MODEL?.trim() || "gpt-5.6-terra-ultra";
 
   if (reviewPass === "legal") {
     return mode === "fallback"
       ? (process.env.OPENAI_LEGAL_FALLBACK_MODEL?.trim() || fastModel)
-      : (process.env.OPENAI_LEGAL_MODEL?.trim() || fastModel);
+      : (process.env.OPENAI_LEGAL_MODEL?.trim() || qualityModel);
   }
   if (reviewPass === "global") {
     if (mode === "fallback") return process.env.OPENAI_DEEP_FALLBACK_MODEL?.trim() || fastModel;
     if (isHighRiskProfile(profile)) return process.env.OPENAI_HIGH_RISK_MODEL?.trim() || qualityModel;
-    return process.env.OPENAI_DEEP_MODEL?.trim() || qualityModel;
+    return process.env.OPENAI_DEEP_MODEL?.trim() || fastModel;
   }
   if (mode === "fallback") return process.env.OPENAI_LOCAL_FALLBACK_MODEL?.trim() || fastModel;
+  // LOCAL only handles objective language issues + fact extraction. Even for administrative
+  // documents it must not decide legal validity, so the fast model is the right default.
   if (isHighRiskProfile(profile) || reviewLevel === "conservative") {
-    return process.env.OPENAI_HIGH_RISK_LOCAL_MODEL?.trim() || qualityModel;
+    return process.env.OPENAI_HIGH_RISK_LOCAL_MODEL?.trim() || fastModel;
   }
   return process.env.OPENAI_LOCAL_MODEL?.trim() || fastModel;
+}
+
+const LEGAL_RELATION_TEXT_RE = /(được\s+sửa đổi|được\s+bổ sung|sửa đổi,?\s*bổ sung|thay thế|bãi bỏ|đình chỉ|hướng dẫn\s+thi hành|quy định\s+chi tiết)/i;
+
+function legalRouting(blocks: DocumentBlock[], mode: ModelMode) {
+  const fastModel = process.env.OPENAI_FAST_MODEL?.trim() || "gpt-5.4-nano-2026-03-17";
+  const qualityModel = process.env.OPENAI_QUALITY_MODEL?.trim() || "gpt-5.6-terra-ultra";
+  const hasLegalRelation = blocks.some((block) => LEGAL_RELATION_TEXT_RE.test(block.text));
+
+  if (mode === "fallback") {
+    return {
+      model: process.env.OPENAI_LEGAL_FALLBACK_MODEL?.trim() || fastModel,
+      reasoningEffort: "none" as const,
+      route: "fallback-fast" as const
+    };
+  }
+
+  if (hasLegalRelation) {
+    return {
+      model: process.env.OPENAI_LEGAL_RELATION_MODEL?.trim() || process.env.OPENAI_LEGAL_MODEL?.trim() || qualityModel,
+      reasoningEffort: "low" as const,
+      route: "relation" as const
+    };
+  }
+
+  return {
+    model: process.env.OPENAI_LEGAL_FAST_MODEL?.trim() || fastModel,
+    reasoningEffort: "none" as const,
+    route: "metadata-fast" as const
+  };
 }
 
 function aiBaseUrl() {
@@ -700,6 +736,7 @@ async function callChatAI(
     model
   );
 
+  console.info(`[ai-route] pass=${reviewPass} profile=${profile} level=${reviewLevel} mode=${mode} model=${model}`);
   logUsage(reviewPass, model, normalizeChatUsage(payload.usage));
   const choices = Array.isArray(payload.choices) ? payload.choices as Array<Record<string, unknown>> : [];
   const message = (choices[0]?.message ?? {}) as Record<string, unknown>;
@@ -758,7 +795,8 @@ function extractResponseSourceCatalog(payload: Record<string, unknown>) {
 
 async function callLegalAI(blocks: DocumentBlock[], profile: string, mode: ModelMode) {
   const baseUrl = aiBaseUrl();
-  const model = modelFor("legal", mode, profile, "conservative");
+  const routing = legalRouting(blocks, mode);
+  const model = routing.model;
   const allowedDomains = officialLegalDomains();
   const payload = await fetchOpenAI(
     `${baseUrl}/responses`,
@@ -772,11 +810,11 @@ async function callLegalAI(blocks: DocumentBlock[], profile: string, mode: Model
       }),
       tools: [{
         type: "web_search",
-        search_context_size: "medium",
+        search_context_size: routing.route === "relation" ? "medium" : "low",
         filters: { allowed_domains: allowedDomains }
       }],
       tool_choice: "required",
-      reasoning: { effort: "medium" },
+      ...(routing.reasoningEffort === "none" ? {} : { reasoning: { effort: routing.reasoningEffort } }),
       text: {
         format: {
           type: "json_schema",
@@ -793,6 +831,7 @@ async function callLegalAI(blocks: DocumentBlock[], profile: string, mode: Model
     model
   );
 
+  console.info(`[ai-route] pass=legal route=${routing.route} model=${model}`);
   logUsage("legal", model, normalizeResponsesUsage(payload.usage));
   const content = responsesOutputText(payload);
   if (!content) throw new AIRequestError(`${aiProviderLabel()} không trả kết quả xác minh pháp lý.`, 502, true);
