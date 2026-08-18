@@ -27,7 +27,7 @@ Vì vậy các mệnh đề quan hệ pháp lý xuất hiện một lần trong 
 ### Legal review — xác minh bằng nguồn chính thức
 
 - Dùng OpenAI Responses API.
-- Model mặc định `gpt-5.6-sol`, reasoning `high`.
+- Model mặc định `gpt-5.6-sol-ultra`, reasoning `high`.
 - `tool_choice="required"` để bắt buộc web search chạy.
 - `web_search.filters.allowed_domains` giới hạn nguồn chính thức.
 - Structured output bằng JSON schema strict.
@@ -59,15 +59,15 @@ APP_ACCESS_CODE=...
 Nên đặt:
 
 ```env
-OPENAI_QUALITY_MODEL=gpt-5.6-sol
-OPENAI_FAST_MODEL=gpt-5.6-terra
-OPENAI_LEGAL_MODEL=gpt-5.6-sol
-OPENAI_LEGAL_FALLBACK_MODEL=gpt-5.6-terra
+OPENAI_QUALITY_MODEL=gpt-5.6-sol-ultra
+OPENAI_FAST_MODEL=gpt-5.6-terra-ultra
+OPENAI_LEGAL_MODEL=gpt-5.6-sol-ultra
+OPENAI_LEGAL_FALLBACK_MODEL=gpt-5.6-terra-ultra
 AI_HIGH_RISK_PROFILES=administrative,contract,academic
 LEGAL_SEARCH_DOMAINS=vanban.chinhphu.vn,datafiles.chinhphu.vn,congbao.chinhphu.vn,vbpl.vn,moj.gov.vn
 ```
 
-`OPENAI_BASE_URL` cũ không còn được code sử dụng. Nếu Vercel còn `https://api.shopaikey.com/v1`, hãy xóa để tránh nhầm cấu hình.
+`OPENAI_BASE_URL` được sử dụng lại. Với key ShopAIKey, đặt `OPENAI_BASE_URL=https://api.shopaikey.com/v1`.
 
 ## 5. Tiêu chí chất lượng mới
 

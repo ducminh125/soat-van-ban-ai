@@ -439,8 +439,8 @@ function isHighRiskProfile(profile: string) {
 }
 
 function modelFor(reviewPass: ReviewPass, mode: ModelMode, profile: string, reviewLevel: string) {
-  const qualityModel = process.env.OPENAI_QUALITY_MODEL?.trim() || "gpt-5.6-sol";
-  const fastModel = process.env.OPENAI_FAST_MODEL?.trim() || "gpt-5.6-terra";
+  const qualityModel = process.env.OPENAI_QUALITY_MODEL?.trim() || "gpt-5.6-sol-ultra";
+  const fastModel = process.env.OPENAI_FAST_MODEL?.trim() || "gpt-5.6-terra-ultra";
 
   if (reviewPass === "legal") {
     return mode === "fallback"
@@ -457,6 +457,22 @@ function modelFor(reviewPass: ReviewPass, mode: ModelMode, profile: string, revi
     return process.env.OPENAI_HIGH_RISK_LOCAL_MODEL?.trim() || qualityModel;
   }
   return process.env.OPENAI_LOCAL_MODEL?.trim() || fastModel;
+}
+
+function aiBaseUrl() {
+  const configured = process.env.OPENAI_BASE_URL?.trim() || "https://api.shopaikey.com/v1";
+  return configured.replace(/\/+$/, "");
+}
+
+function aiProviderLabel() {
+  try {
+    const host = new URL(aiBaseUrl()).hostname.toLowerCase();
+    if (host === "api.shopaikey.com" || host.endsWith(".shopaikey.com")) return "ShopAIKey";
+    if (host === "api.openai.com" || host.endsWith(".openai.com")) return "OpenAI";
+    return host;
+  } catch {
+    return "AI provider";
+  }
 }
 
 function requestTimeoutMs(reviewPass: ReviewPass) {
@@ -533,7 +549,7 @@ function logUsage(reviewPass: ReviewPass, model: string, usage?: TokenUsage) {
 async function fetchOpenAI(url: string, body: unknown, reviewPass: ReviewPass, model: string) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || apiKey === "PASTE_YOUR_KEY_HERE") {
-    throw new AIRequestError("Chưa cấu hình OPENAI_API_KEY của OpenAI trên Vercel.", 500, false);
+    throw new AIRequestError(`Chưa cấu hình OPENAI_API_KEY cho ${aiProviderLabel()} trên Vercel.`, 500, false);
   }
 
   const controller = new AbortController();
@@ -553,9 +569,9 @@ async function fetchOpenAI(url: string, body: unknown, reviewPass: ReviewPass, m
   } catch (error) {
     clearTimeout(timer);
     if (error instanceof Error && error.name === "AbortError") {
-      throw new AIRequestError(`OpenAI model ${model} xử lý quá thời gian; sẽ thử lại.`, 504, true);
+      throw new AIRequestError(`${aiProviderLabel()} model ${model} xử lý quá thời gian; sẽ thử lại.`, 504, true);
     }
-    throw new AIRequestError(`Không kết nối được tới OpenAI: ${error instanceof Error ? error.message : "lỗi mạng"}`, 502, true);
+    throw new AIRequestError(`Không kết nối được tới ${aiProviderLabel()}: ${error instanceof Error ? error.message : "lỗi mạng"}`, 502, true);
   }
   clearTimeout(timer);
 
@@ -569,7 +585,7 @@ async function fetchOpenAI(url: string, body: unknown, reviewPass: ReviewPass, m
     } catch {}
     const safeDetail = detail.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 360);
     throw new AIRequestError(
-      `OpenAI lỗi ${response.status}${safeDetail ? `: ${safeDetail}` : ""}`,
+      `${aiProviderLabel()} lỗi ${response.status}${safeDetail ? `: ${safeDetail}` : ""}`,
       retryable ? 503 : response.status,
       retryable,
       response.status
@@ -579,7 +595,7 @@ async function fetchOpenAI(url: string, body: unknown, reviewPass: ReviewPass, m
   try {
     return JSON.parse(text) as Record<string, unknown>;
   } catch {
-    throw new AIRequestError("OpenAI trả phản hồi không đọc được.", 502, true);
+    throw new AIRequestError(`${aiProviderLabel()} trả phản hồi không đọc được.`, 502, true);
   }
 }
 
@@ -590,7 +606,7 @@ async function callChatAI(
   mode: ModelMode,
   reviewPass: "local" | "global"
 ) {
-  const baseUrl = "https://api.openai.com/v1";
+  const baseUrl = aiBaseUrl();
   const model = modelFor(reviewPass, mode, profile, reviewLevel);
   const tool = reviewPass === "global" ? GLOBAL_TOOL : LOCAL_TOOL;
   const toolName = reviewPass === "global" ? "submit_global_review" : "submit_local_review";
@@ -687,7 +703,7 @@ function extractResponseSourceCatalog(payload: Record<string, unknown>) {
 }
 
 async function callLegalAI(blocks: DocumentBlock[], profile: string, mode: ModelMode) {
-  const baseUrl = "https://api.openai.com/v1";
+  const baseUrl = aiBaseUrl();
   const model = modelFor("legal", mode, profile, "conservative");
   const allowedDomains = officialLegalDomains();
   const payload = await fetchOpenAI(

@@ -14,7 +14,7 @@
 </head>
 <body>
   <h1>Soát Văn Bản AI v1.0 — triển khai Vercel</h1>
-  <div class="warn"><strong>Quan trọng:</strong> bản v1.0 gọi OpenAI trực tiếp. Nếu Vercel còn biến <code>OPENAI_BASE_URL=https://api.shopaikey.com/v1</code>, hãy xóa biến này. Code v1.0 không sử dụng biến đó.</div>
+  <div class="warn"><strong>Quan trọng:</strong> bản ShopAIKey phải giữ <code>OPENAI_BASE_URL=https://api.shopaikey.com/v1</code>. Không dùng endpoint <code>api.openai.com</code> với key ShopAIKey.</div>
 
   <h2>1. Biến môi trường bắt buộc</h2>
   <pre>OPENAI_API_KEY=sk-...
@@ -23,16 +23,16 @@ UPSTASH_REDIS_REST_URL=...
 UPSTASH_REDIS_REST_TOKEN=...</pre>
 
   <h2>2. Model khuyến nghị</h2>
-  <pre>OPENAI_QUALITY_MODEL=gpt-5.6-sol
-OPENAI_FAST_MODEL=gpt-5.6-terra
-OPENAI_HIGH_RISK_LOCAL_MODEL=gpt-5.6-sol
-OPENAI_LOCAL_MODEL=gpt-5.6-terra
-OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.6-terra
-OPENAI_HIGH_RISK_MODEL=gpt-5.6-sol
-OPENAI_DEEP_MODEL=gpt-5.6-sol
-OPENAI_DEEP_FALLBACK_MODEL=gpt-5.6-terra
-OPENAI_LEGAL_MODEL=gpt-5.6-sol
-OPENAI_LEGAL_FALLBACK_MODEL=gpt-5.6-terra
+  <pre>OPENAI_QUALITY_MODEL=gpt-5.6-sol-ultra
+OPENAI_FAST_MODEL=gpt-5.6-terra-ultra
+OPENAI_HIGH_RISK_LOCAL_MODEL=gpt-5.6-sol-ultra
+OPENAI_LOCAL_MODEL=gpt-5.6-terra-ultra
+OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.6-terra-ultra
+OPENAI_HIGH_RISK_MODEL=gpt-5.6-sol-ultra
+OPENAI_DEEP_MODEL=gpt-5.6-sol-ultra
+OPENAI_DEEP_FALLBACK_MODEL=gpt-5.6-terra-ultra
+OPENAI_LEGAL_MODEL=gpt-5.6-sol-ultra
+OPENAI_LEGAL_FALLBACK_MODEL=gpt-5.6-terra-ultra
 AI_HIGH_RISK_PROFILES=administrative,contract,academic
 LEGAL_SEARCH_DOMAINS=vanban.chinhphu.vn,datafiles.chinhphu.vn,congbao.chinhphu.vn,vbpl.vn,moj.gov.vn</pre>
 

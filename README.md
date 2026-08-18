@@ -4,7 +4,7 @@ Bản v1.0 ưu tiên **độ chính xác và khả năng dùng trực tiếp đ�
 
 ## Điểm thay đổi chính
 
-1. **Dùng OpenAI trực tiếp** tại `https://api.openai.com/v1`.
+1. **Dùng ShopAIKey theo chuẩn OpenAI-compatible** tại `https://api.shopaikey.com/v1` (có thể đổi bằng `OPENAI_BASE_URL`).
 2. Mặc định dùng **GPT-5.6 Sol** cho các lượt chất lượng cao và văn bản rủi ro cao; **GPT-5.6 Terra** làm model cân bằng/fallback.
 3. Thêm lượt **LEGAL review** bằng Responses API + `web_search` để kiểm chứng số/ký hiệu, trích yếu và quan hệ giữa văn bản pháp luật.
 4. Web search pháp lý mặc định chỉ tra các miền chính thức:
@@ -29,26 +29,26 @@ UPSTASH_REDIS_REST_URL=...
 UPSTASH_REDIS_REST_TOKEN=...
 ```
 
-> Nếu project cũ đang có `OPENAI_BASE_URL=https://api.shopaikey.com/v1`, có thể xóa biến đó. Bản v1.0 gọi trực tiếp OpenAI và không dùng `OPENAI_BASE_URL` nữa.
+> Với key ShopAIKey, bắt buộc giữ `OPENAI_BASE_URL=https://api.shopaikey.com/v1`. Chỉ đổi sang `https://api.openai.com/v1` nếu bạn dùng API key chính chủ OpenAI.
 
 ## Cấu hình model khuyến nghị
 
 Không bắt buộc khai báo vì code đã có default, nhưng nên cấu hình rõ trên Vercel:
 
 ```env
-OPENAI_QUALITY_MODEL=gpt-5.6-sol
-OPENAI_FAST_MODEL=gpt-5.6-terra
+OPENAI_QUALITY_MODEL=gpt-5.6-sol-ultra
+OPENAI_FAST_MODEL=gpt-5.6-terra-ultra
 
-OPENAI_HIGH_RISK_LOCAL_MODEL=gpt-5.6-sol
-OPENAI_LOCAL_MODEL=gpt-5.6-terra
-OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.6-terra
+OPENAI_HIGH_RISK_LOCAL_MODEL=gpt-5.6-sol-ultra
+OPENAI_LOCAL_MODEL=gpt-5.6-terra-ultra
+OPENAI_LOCAL_FALLBACK_MODEL=gpt-5.6-terra-ultra
 
-OPENAI_HIGH_RISK_MODEL=gpt-5.6-sol
-OPENAI_DEEP_MODEL=gpt-5.6-sol
-OPENAI_DEEP_FALLBACK_MODEL=gpt-5.6-terra
+OPENAI_HIGH_RISK_MODEL=gpt-5.6-sol-ultra
+OPENAI_DEEP_MODEL=gpt-5.6-sol-ultra
+OPENAI_DEEP_FALLBACK_MODEL=gpt-5.6-terra-ultra
 
-OPENAI_LEGAL_MODEL=gpt-5.6-sol
-OPENAI_LEGAL_FALLBACK_MODEL=gpt-5.6-terra
+OPENAI_LEGAL_MODEL=gpt-5.6-sol-ultra
+OPENAI_LEGAL_FALLBACK_MODEL=gpt-5.6-terra-ultra
 AI_HIGH_RISK_PROFILES=administrative,contract,academic
 
 LEGAL_SEARCH_DOMAINS=vanban.chinhphu.vn,datafiles.chinhphu.vn,congbao.chinhphu.vn,vbpl.vn,moj.gov.vn
