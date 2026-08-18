@@ -1,0 +1,10 @@
+# v1.0.4.1 Production Stable
+
+OPENAI_BASE_URL=https://api.shopaikey.com/v1
+OPENAI_FAST_MODEL=gpt-5.4-nano
+OPENAI_QUALITY_MODEL=gpt-5.6-terra
+OPENAI_LEGAL_MODEL=gpt-5.6-terra
+
+AI_LOCAL_RETRY=1
+AI_GLOBAL_RETRY=1
+AI_LEGAL_RETRY=1

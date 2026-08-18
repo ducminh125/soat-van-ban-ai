@@ -1,0 +1,6 @@
+V1.0.4.1 Production Stable package
+- Added recovery engine
+- Added legal segment splitter
+- Added output validator
+- Added AI_PROCESS_LOG migration
+- Environment documentation included
