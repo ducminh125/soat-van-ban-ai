@@ -16,3 +16,4 @@ SUPABASE_SERVICE_KEY
 NEXT_PUBLIC_APP_NAME
 
 4. Deploy.
+\n\n## ShopAIKey API\nCau hinh AI_API_KEY, AI_BASE_URL va AI_MODEL trong moi truong Vercel.\n
