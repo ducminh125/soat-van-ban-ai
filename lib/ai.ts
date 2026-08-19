@@ -262,20 +262,20 @@ function isHighRiskGlobalProfile(profile: string) {
 function modelFor(reviewPass: ReviewPass, mode: ModelMode, profile: string) {
   if (reviewPass === "global") {
     if (mode === "fallback") {
-      return process.env.OPENAI_DEEP_FALLBACK_MODEL?.trim() || "gpt-5.4-mini-2026-03-17";
+      return process.env.OPENAI_DEEP_FALLBACK_MODEL?.trim() || "gpt-5.2";
     }
     if (isHighRiskGlobalProfile(profile)) {
-      return process.env.OPENAI_HIGH_RISK_MODEL?.trim() || "gpt-5.6-sol";
+      return process.env.OPENAI_HIGH_RISK_MODEL?.trim() || "gpt-5.2";
     }
-    return process.env.OPENAI_DEEP_MODEL?.trim() || "gpt-5.4-mini-2026-03-17";
+    return process.env.OPENAI_DEEP_MODEL?.trim() || "gpt-5.2";
   }
   return mode === "fallback"
-    ? (process.env.OPENAI_LOCAL_FALLBACK_MODEL?.trim() || "gpt-5.4-mini-2026-03-17")
-    : (process.env.OPENAI_LOCAL_MODEL?.trim() || "gpt-5.4-mini-2026-03-17");
+    ? (process.env.OPENAI_LOCAL_FALLBACK_MODEL?.trim() || "gpt-5.2")
+    : (process.env.OPENAI_LOCAL_MODEL?.trim() || "gpt-5.2");
 }
 
 function firstByteTimeoutMs(reviewPass: ReviewPass) {
-  const fallback = reviewPass === "global" ? 115000 : 80000;
+  const fallback = reviewPass === "global" ? 90000 : 60000;
   const envName = reviewPass === "global" ? "AI_DEEP_FIRST_BYTE_TIMEOUT_MS" : "AI_LOCAL_FIRST_BYTE_TIMEOUT_MS";
   const configured = Number(process.env[envName] ?? fallback);
   if (!Number.isFinite(configured)) return fallback;
@@ -289,7 +289,7 @@ function idleTimeoutMs() {
 }
 
 function maxOutputTokens(reviewPass: ReviewPass) {
-  const fallback = reviewPass === "global" ? 3200 : 2600;
+  const fallback = reviewPass === "global" ? 2200 : 1800;
   const envName = reviewPass === "global" ? "AI_DEEP_MAX_TOKENS" : "AI_LOCAL_MAX_TOKENS";
   const configured = Number(process.env[envName] ?? fallback);
   if (!Number.isFinite(configured)) return fallback;
