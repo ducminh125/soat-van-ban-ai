@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import mammoth from "mammoth";
-import pdf from "pdf-parse";
-import { reviewPrompt } from "@/lib/ai/prompts";
+import { PDFParse } from "pdf-parse";
+import { reviewPrompt } from "../../../lib/ai/prompts";
 
 export const runtime = "nodejs";
 
@@ -16,7 +16,9 @@ async function extractText(file: File) {
   }
 
   if (name.endsWith(".pdf")) {
-    const result = await pdf(buffer);
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    await parser.destroy();
     return result.text;
   }
 
