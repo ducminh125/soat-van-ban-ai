@@ -38,16 +38,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Không đọc được nội dung file" }, { status: 400 });
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    if (!process.env.AI_API_KEY) {
       return NextResponse.json({
-        error: "Thiếu OPENAI_API_KEY trong Environment Variables"
+        error: "Thiếu AI_API_KEY trong Environment Variables"
       }, { status: 500 });
     }
 
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({
+      apiKey: process.env.AI_API_KEY,
+      baseURL: process.env.AI_BASE_URL || "https://api.shopaikey.com/v1"
+    });
 
     const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: process.env.AI_MODEL || "gpt-4o-mini",
       temperature: 0.2,
       messages: [
         { role: "system", content: reviewPrompt },
