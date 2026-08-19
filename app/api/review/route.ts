@@ -1,99 +1,118 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
-import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
-import { reviewPrompt } from "../../../lib/ai/prompts";
+import { AIRequestError, reviewGlobal, reviewLocal, type ModelMode, type ReviewPass } from "@/lib/ai";
+import type { DocumentBlock, ReviewFact } from "@/lib/types";
+import { assertReviewSession, enforceRateLimit, UsageStorageError } from "@/lib/usage";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
-async function extractText(file: File) {
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const name = file.name.toLowerCase();
+const MAX_LOCAL_CHARACTERS = 6500;
+const MAX_GLOBAL_PAYLOAD_CHARACTERS = 180000;
 
-  if (name.endsWith(".docx")) {
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value;
+function accessError(request: Request) {
+  const expectedCode = process.env.APP_ACCESS_CODE?.trim();
+  if (!expectedCode) {
+    return NextResponse.json(
+      { error: "Máy chủ chưa cấu hình APP_ACCESS_CODE.", retryable: false },
+      { status: 503 }
+    );
   }
 
-  if (name.endsWith(".pdf")) {
-    const parser = new PDFParse({ data: buffer });
-    const result = await parser.getText();
-    await parser.destroy();
-    return result.text;
+  const suppliedCode = request.headers.get("x-app-access-code")?.trim();
+  if (suppliedCode !== expectedCode) {
+    return NextResponse.json({ error: "Mã truy cập không đúng.", retryable: false }, { status: 401 });
   }
-
-  return buffer.toString("utf-8");
+  return null;
 }
 
-function parseAiJson(content: string) {
-  try {
-    return JSON.parse(content);
-  } catch {
-    const match = content.match(/\{[\s\S]*\}/);
-    if (match) {
-      try { return JSON.parse(match[0]); } catch {}
-    }
-    return {
-      issues: [],
-      facts: [],
-      explanation: content
-    };
-  }
+function clientKey(request: Request) {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
-export async function POST(req: Request) {
-  const start = Date.now();
+export async function POST(request: Request) {
   try {
-    const form = await req.formData();
-    const file = form.get("file");
+    await enforceRateLimit(`review:${clientKey(request)}`);
 
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Chưa có file tải lên" }, { status: 400 });
+    const denied = accessError(request);
+    if (denied) return denied;
+
+    const reviewSessionId = request.headers.get("x-review-session-id")?.trim() || "";
+    await assertReviewSession(reviewSessionId);
+
+    const body = await request.json();
+    const profile = String(body?.profile ?? "general");
+    const reviewLevel = String(body?.reviewLevel ?? "balanced");
+    const modelMode: ModelMode = body?.modelMode === "fallback" ? "fallback" : "primary";
+    const reviewPass: ReviewPass = body?.reviewPass === "global" ? "global" : "local";
+
+    if (reviewPass === "global") {
+      const rawFacts = Array.isArray(body?.facts) ? body.facts : [];
+      const facts: ReviewFact[] = rawFacts
+        .map((item: unknown) => {
+          const fact = item as Partial<ReviewFact>;
+          const kind = ["entity", "term", "abbreviation", "date", "number", "claim"].includes(String(fact.kind))
+            ? fact.kind as ReviewFact["kind"]
+            : "claim";
+          return {
+            blockId: String(fact.blockId ?? ""),
+            kind,
+            quote: String(fact.quote ?? ""),
+            normalizedKey: String(fact.normalizedKey ?? ""),
+            value: fact.value === null || fact.value === undefined ? null : String(fact.value),
+            context: String(fact.context ?? "")
+          };
+        })
+        .filter((fact: ReviewFact) => fact.blockId && fact.quote);
+
+      if (!facts.length) {
+        return NextResponse.json({ issues: [], facts: [], retryable: false, modelMode, reviewPass });
+      }
+
+      const payloadSize = JSON.stringify(facts).length;
+      if (payloadSize > MAX_GLOBAL_PAYLOAD_CHARACTERS) {
+        return NextResponse.json({ error: "Tập dữ kiện toàn văn quá lớn.", retryable: false }, { status: 400 });
+      }
+
+      const issues = await reviewGlobal(facts, profile, modelMode);
+      return NextResponse.json({ issues, facts: [], retryable: false, modelMode, reviewPass });
     }
 
-    const text = await extractText(file);
+    const rawBlocks = Array.isArray(body?.blocks) ? body.blocks : [];
+    const blocks: DocumentBlock[] = rawBlocks
+      .map((item: unknown) => {
+        const block = item as Partial<DocumentBlock>;
+        return {
+          id: String(block?.id ?? ""),
+          partName: String(block?.partName ?? "word/document.xml"),
+          paragraphIndex: Number(block?.paragraphIndex ?? 0),
+          text: String(block?.text ?? "")
+        };
+      })
+      .filter((block: DocumentBlock) => block.id && block.text.trim());
 
-    if (!text.trim()) {
-      return NextResponse.json({ error: "Không đọc được nội dung file" }, { status: 400 });
+    if (!blocks.length) {
+      return NextResponse.json({ error: "Không có nội dung để rà soát.", retryable: false }, { status: 400 });
     }
 
-    if (!process.env.AI_API_KEY) {
-      return NextResponse.json({ error: "Thiếu AI_API_KEY trên Vercel" }, { status: 500 });
+    const characterCount = blocks.reduce((sum, block) => sum + block.text.length, 0);
+    if (characterCount > MAX_LOCAL_CHARACTERS) {
+      return NextResponse.json({ error: "Phần văn bản gửi lên quá lớn.", retryable: false }, { status: 400 });
     }
 
-    const client = new OpenAI({
-      apiKey: process.env.AI_API_KEY,
-      baseURL: process.env.AI_BASE_URL || "https://api.shopaikey.com/v1",
-      timeout: 50000
-    });
-
-    const completion = await client.chat.completions.create({
-      model: process.env.AI_MODEL || "gpt-4o-mini",
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: reviewPrompt },
-        { role: "user", content: text.slice(0, 30000) }
-      ]
-    });
-
-    const content = completion.choices[0]?.message?.content || "{}";
-    const parsed = parseAiJson(content);
-
-    return NextResponse.json({
-      filename: file.name,
-      issues: parsed.issues || [],
-      facts: parsed.facts || [],
-      result: parsed,
-      elapsed: Date.now() - start
-    });
-
-  } catch (e) {
-    console.error("REVIEW_ERROR", e);
-    return NextResponse.json({
-      error: e instanceof Error ? e.message : String(e),
-      hint: "Kiểm tra AI_API_KEY, AI_BASE_URL và AI_MODEL trên Vercel"
-    }, { status: 500 });
+    const result = await reviewLocal(blocks, profile, reviewLevel, modelMode);
+    return NextResponse.json({ ...result, retryable: false, modelMode, reviewPass });
+  } catch (error) {
+    if (error instanceof UsageStorageError) {
+      return NextResponse.json({ error: error.message, retryable: false }, { status: error.status });
+    }
+    if (error instanceof AIRequestError) {
+      return NextResponse.json(
+        { error: error.message, retryable: error.retryable, upstreamStatus: error.upstreamStatus ?? null },
+        { status: error.status }
+      );
+    }
+    const message = error instanceof Error ? error.message : "Rà soát thất bại.";
+    return NextResponse.json({ error: message, retryable: false }, { status: 500 });
   }
 }
