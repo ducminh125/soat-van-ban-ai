@@ -95,7 +95,7 @@ const labels: Record<string, string> = {
 };
 
 const MAX_FILE_MB = 20;
-const MAX_CHARACTERS = 300000;
+const MAX_CHARACTERS = 80000;
 const LOCAL_BATCH_CHARACTERS = 5200;
 const SINGLE_FRAGMENT_CHARACTERS = 4200;
 const FRAGMENT_OVERLAP = 120;
